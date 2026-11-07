@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neurosynth Explorer</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --text: #1b1f24;
+    --muted: #5f6b7a;
+    --border: #dde1e6;
+    --accent: #2f6fde;
+    --accent-text: #ffffff;
+    --accent-soft: #e8effc;
+    --code-bg: #f0f2f5;
+    --error: #b42318;
+    --error-soft: #fdecea;
+    --ok: #18794e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418;
+      --panel: #1a1e24;
+      --text: #e6e9ed;
+      --muted: #97a1ad;
+      --border: #2c323a;
+      --accent: #6b9cff;
+      --accent-text: #0b1220;
+      --accent-soft: #1f2a3d;
+      --code-bg: #232831;
+      --error: #ff8a80;
+      --error-soft: #3a1f1f;
+      --ok: #5bd69a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 20px; }
+  h1 { font-size: 22px; margin: 0; }
+  header a { color: var(--muted); font-size: 14px; }
+  a { color: var(--accent); }
+
+  .tab-group { margin-bottom: 12px; }
+  .tab-group-label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); margin-bottom: 6px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tab.extra { border-style: dashed; }
+  .tab {
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    padding: 7px 12px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 14px;
+  }
+  .tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .panel + .panel { margin-top: 16px; }
+  .desc { color: var(--muted); margin: 0 0 14px; }
+
+  .group { border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px 12px; margin: 0 0 12px; }
+  .group legend { padding: 0 6px; font-size: 13px; color: var(--muted); }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  input, select {
+    font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; min-width: 0;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input[type="number"] { width: 84px; }
+  input.term { width: 260px; max-width: 100%; }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 14px; font-size: 13px; color: var(--muted); }
+  .chip {
+    border: 1px solid var(--border); background: var(--accent-soft); color: var(--text);
+    border-radius: 999px; padding: 3px 10px; cursor: pointer; font: inherit; font-size: 13px;
+  }
+
+  .urlbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+  .urlbar code {
+    flex: 1 1 320px; min-width: 0; overflow-wrap: anywhere;
+    background: var(--code-bg); border-radius: 8px; padding: 8px 10px; font-size: 13px;
+  }
+  button.primary, a.btn, button.secondary {
+    font: inherit; font-size: 14px; border-radius: 8px; padding: 8px 14px; cursor: pointer; text-decoration: none;
+  }
+  button.primary { background: var(--accent); color: var(--accent-text); border: 1px solid var(--accent); }
+  a.btn, button.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+  button:disabled { opacity: .6; cursor: progress; }
+
+  .summary { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; margin-bottom: 12px; }
+  .count { font-size: 28px; font-weight: 600; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .status-ok { color: var(--ok); }
+  .error { background: var(--error-soft); color: var(--error); border-radius: 8px; padding: 10px 12px; overflow-wrap: anywhere; }
+
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .tools input { flex: 1 1 220px; }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); white-space: nowrap; }
+  td.year, td.id { white-space: nowrap; }
+  td.authors { color: var(--muted); max-width: 260px; }
+  .empty { color: var(--muted); padding: 16px 0; }
+  .hidden { display: none; }
+  .pager { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+  td.dist { white-space: nowrap; text-align: right; }
+  .dirs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .text-out { background: var(--code-bg); border-radius: 8px; padding: 12px; margin: 0 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+  details pre { background: var(--code-bg); border-radius: 8px; padding: 10px; overflow: auto; max-height: 320px; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Neurosynth Explorer</h1>
+    <a href="/docs">API docs</a>
+    <a href="/test_db">DB status</a>
+  </header>
+
+  <nav id="tabs"></nav>
+
+  <section class="panel">
+    <form id="form" autocomplete="off">
+      <p class="desc" id="desc"></p>
+      <div id="fields"></div>
+      <div class="presets" id="presets"></div>
+      <div class="urlbar">
+        <code id="url"></code>
+        <button type="submit" class="primary" id="run">Run</button>
+        <a class="btn" id="open" target="_blank" rel="noopener">Open endpoint ↗</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel hidden" id="results">
+    <div class="summary">
+      <span class="count" id="count"></span>
+      <span class="meta" id="meta"></span>
+    </div>
+    <div class="error hidden" id="error"></div>
+    <div class="dirs hidden" id="dirs"></div>
+    <pre class="text-out hidden" id="text"></pre>
+    <div id="studies">
+      <div class="tools">
+        <input type="search" id="filter" placeholder="Filter by title, author, journal, year…">
+        <span class="meta" id="shown"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead id="head"></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="pager hidden" id="pager">
+        <button type="button" class="secondary" id="prev">← Prev</button>
+        <span class="meta" id="range"></span>
+        <button type="button" class="secondary" id="next">Next →</button>
+      </div>
+    </div>
+    <details>
+      <summary class="meta">Raw JSON</summary>
+      <pre id="raw"></pre>
+    </details>
+  </section>
+</main>
+
+<script>
+// Sort keys accepted by the paginated mirrors
+const TERM_SORTS = ["year", "title", "journal", "study_id"];
+const LOCATION_SORTS = [...TERM_SORTS, "distance"];
+const DEFAULT_LIMIT = 50;
+
+// Each endpoint: which inputs it needs, how to build its path, and example values
+const ENDPOINTS = [
+  {
+    id: "terms",
+    label: "Studies by term",
+    desc: "Studies whose abstract mentions a term.",
+    groups: [{ kind: "term", key: "t", legend: "Term" }],
+    path: v => `/terms/${enc(v.t)}/studies`,
+    presets: [
+      { name: "posterior cingulate", v: { t: "posterior cingulate" } },
+      { name: "amygdala", v: { t: "amygdala" } },
+      { name: "working memory", v: { t: "working memory" } },
+    ],
+  },
+  {
+    id: "locations",
+    label: "Studies by location",
+    desc: "Studies reporting a coordinate within r mm of an MNI location.",
+    groups: [{ kind: "xyz", key: "a", legend: "MNI coordinate" }],
+    radius: true,
+    path: v => `/locations/${xyz(v, "a")}/studies`,
+    presets: [
+      { name: "PCC (0, -52, 26)", v: { a_x: 0, a_y: -52, a_z: 26 } },
+      { name: "vmPFC (-2, 50, -6)", v: { a_x: -2, a_y: 50, a_z: -6 } },
+    ],
+  },
+  {
+    id: "dissociate-terms",
+    label: "Dissociate terms",
+    desc: "Studies that mention term A but not term B.",
+    groups: [
+      { kind: "term", key: "a", legend: "A: include" },
+      { kind: "term", key: "b", legend: "B: exclude" },
+    ],
+    swap: [["a", "b"]],
+    path: v => `/dissociate/terms/${enc(v.a)}/${enc(v.b)}`,
+    presets: [
+      { name: "PCC \\ vmPFC", v: { a: "posterior cingulate", b: "ventromedial prefrontal" } },
+      { name: "vmPFC \\ PCC", v: { a: "ventromedial prefrontal", b: "posterior cingulate" } },
+    ],
+  },
+  {
+    id: "dissociate-locations",
+    label: "Dissociate locations",
+    desc: "Studies reporting a coordinate near A but none near B.",
+    groups: [
+      { kind: "xyz", key: "a", legend: "A: include" },
+      { kind: "xyz", key: "b", legend: "B: exclude" },
+    ],
+    radius: true,
+    swap: [["a_x", "b_x"], ["a_y", "b_y"], ["a_z", "b_z"]],
+    path: v => `/dissociate/locations/${xyz(v, "a")}/${xyz(v, "b")}`,
+    presets: [
+      { name: "PCC \\ vmPFC", v: { a_x: 0, a_y: -52, a_z: 26, b_x: -2, b_y: 50, b_z: -6 } },
+      { name: "vmPFC \\ PCC", v: { a_x: -2, a_y: 50, a_z: -6, b_x: 0, b_y: -52, b_z: 26 } },
+    ],
+  },
+
+  // Query-parameter mirrors: same results as the four above, inputs as typed ?params
+  {
+    id: "q-terms",
+    group: "mirror",
+    label: "Studies by term",
+    desc: "Mirror of /terms/{term}/studies, with the term as ?term=. Sorted and paginated.",
+    groups: [{ kind: "term", key: "t", legend: "Term" }],
+    sorts: TERM_SORTS,
+    path: v => `/studies/by-term?term=${enc(v.t)}`,
+    presets: [
+      { name: "posterior cingulate", v: { t: "posterior cingulate" } },
+      { name: "amygdala", v: { t: "amygdala" } },
+    ],
+  },
+  {
+    id: "q-locations",
+    group: "mirror",
+    label: "Studies by location",
+    desc: "Mirror of /locations/{x_y_z}/studies, with ?x=&y=&z=. Sorted and paginated; includes the distance to each study's closest focus.",
+    groups: [{ kind: "xyz", key: "a", legend: "MNI coordinate" }],
+    radius: true,
+    sorts: LOCATION_SORTS,
+    path: v => `/studies/by-location?${xyzQuery(v, "a", "")}`,
+    presets: [
+      { name: "PCC (0, -52, 26)", v: { a_x: 0, a_y: -52, a_z: 26 } },
+      { name: "vmPFC (-2, 50, -6)", v: { a_x: -2, a_y: 50, a_z: -6 } },
+    ],
+  },
+  {
+    id: "q-dissociate-terms",
+    group: "mirror",
+    label: "Dissociate terms",
+    desc: "Mirror of /dissociate/terms/{term_a}/{term_b}, with ?term_a=&term_b=. Sorted and paginated.",
+    groups: [
+      { kind: "term", key: "a", legend: "A: include" },
+      { kind: "term", key: "b", legend: "B: exclude" },
+    ],
+    swap: [["a", "b"]],
+    sorts: TERM_SORTS,
+    path: v => `/dissociate/terms?term_a=${enc(v.a)}&term_b=${enc(v.b)}`,
+    presets: [
+      { name: "PCC \\ vmPFC", v: { a: "posterior cingulate", b: "ventromedial prefrontal" } },
+      { name: "vmPFC \\ PCC", v: { a: "ventromedial prefrontal", b: "posterior cingulate" } },
+    ],
+  },
+  {
+    id: "q-dissociate-locations",
+    group: "mirror",
+    label: "Dissociate locations",
+    desc: "Mirror of /dissociate/locations/{x1_y1_z1}/{x2_y2_z2}, with ?x1=&y1=&z1=&x2=&y2=&z2=. Sorted and paginated; distance is to point 1.",
+    groups: [
+      { kind: "xyz", key: "a", legend: "Point 1: include" },
+      { kind: "xyz", key: "b", legend: "Point 2: exclude" },
+    ],
+    radius: true,
+    swap: [["a_x", "b_x"], ["a_y", "b_y"], ["a_z", "b_z"]],
+    sorts: LOCATION_SORTS,
+    path: v => `/dissociate/locations?${xyzQuery(v, "a", "1")}&${xyzQuery(v, "b", "2")}`,
+    presets: [
+      { name: "PCC \\ vmPFC", v: { a_x: 0, a_y: -52, a_z: 26, b_x: -2, b_y: 50, b_z: -6 } },
+      { name: "vmPFC \\ PCC", v: { a_x: -2, a_y: 50, a_z: -6, b_x: 0, b_y: -52, b_z: 26 } },
+    ],
+  },
+
+  // Extras: not part of the assignment
+  {
+    id: "both-terms",
+    group: "extra",
+    kind: "both",
+    label: "Dissociate terms (both ways)",
+    desc: "A \\ B and B \\ A in one response.",
+    groups: [
+      { kind: "term", key: "a", legend: "Term A" },
+      { kind: "term", key: "b", legend: "Term B" },
+    ],
+    swap: [["a", "b"]],
+    path: v => `/dissociate/terms/${enc(v.a)}/${enc(v.b)}/both`,
+    presets: [
+      { name: "PCC ⇄ vmPFC", v: { a: "posterior cingulate", b: "ventromedial prefrontal" } },
+    ],
+  },
+  {
+    id: "both-locations",
+    group: "extra",
+    kind: "both",
+    label: "Dissociate locations (both ways)",
+    desc: "Near A but not B, and near B but not A, in one response.",
+    groups: [
+      { kind: "xyz", key: "a", legend: "Location A" },
+      { kind: "xyz", key: "b", legend: "Location B" },
+    ],
+    radius: true,
+    swap: [["a_x", "b_x"], ["a_y", "b_y"], ["a_z", "b_z"]],
+    path: v => `/dissociate/locations/${xyz(v, "a")}/${xyz(v, "b")}/both`,
+    presets: [
+      { name: "PCC ⇄ vmPFC", v: { a_x: 0, a_y: -52, a_z: 26, b_x: -2, b_y: 50, b_z: -6 } },
+    ],
+  },
+  {
+    id: "health",
+    group: "extra",
+    kind: "text",
+    label: "Health",
+    desc: "Plain-text liveness ping for the keep-awake cron job. Doesn't touch the database.",
+    groups: [],
+    path: () => "/health",
+    presets: [],
+  },
+];
+
+const TAB_GROUPS = [
+  { id: "assignment", label: "Assignment endpoints" },
+  { id: "mirror", label: "Extras: query-parameter mirrors" },
+  { id: "extra", label: "Extras" },
+];
+const DIRECTIONS = [["a_not_b", "A \\ B"], ["b_not_a", "B \\ A"]];
+
+const $ = id => document.getElementById(id);
+const enc = s => encodeURIComponent((s ?? "").trim());
+const xyz = (v, k) => [v[`${k}_x`], v[`${k}_y`], v[`${k}_z`]].map(n => String(n ?? "").trim()).join("_");
+const xyzQuery = (v, k, suffix) => ["x", "y", "z"].map(a => `${a}${suffix}=${enc(String(v[`${k}_${a}`] ?? ""))}`).join("&");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+let current = ENDPOINTS[0];
+let studies = [];
+let both = null;
+
+function renderTabs() {
+  $("tabs").innerHTML = TAB_GROUPS.map(g => `
+    <div class="tab-group">
+      <span class="tab-group-label">${g.label}</span>
+      <div class="tabs" role="tablist">${ENDPOINTS.filter(e => (e.group || "assignment") === g.id).map(e =>
+        `<button type="button" class="tab${e.group ? " extra" : ""}" role="tab" data-id="${e.id}" aria-selected="${e === current}">${e.label}</button>`
+      ).join("")}</div>
+    </div>`).join("");
+}
+
+function renderForm(values) {
+  const e = current;
+  $("desc").textContent = e.desc;
+
+  let html = e.groups.map(g => {
+    const inputs = g.kind === "term"
+      ? `<label>Term<input class="term" name="${g.key}" required placeholder="e.g. posterior cingulate"></label>`
+      : ["x", "y", "z"].map(axis =>
+          `<label>${axis}<input type="number" step="any" name="${g.key}_${axis}" required></label>`).join("");
+    return `<fieldset class="group"><legend>${g.legend}</legend><div class="row">${inputs}</div></fieldset>`;
+  }).join("");
+
+  const extras = [];
+  if (e.radius) extras.push(`<label>Radius r (mm)<input type="number" name="r" min="0" max="20" step="any" value="6"></label>`);
+  if (e.swap) extras.push(`<button type="button" class="secondary" id="swap">Swap A ⇄ B</button>`);
+  if (extras.length) html += `<div class="row" style="margin-bottom:12px">${extras.join("")}</div>`;
+  if (e.sorts) html += `<fieldset class="group"><legend>Sort &amp; page</legend><div class="row">
+      <label>Sort by<select name="sort">${e.sorts.map(s => `<option>${s}</option>`).join("")}</select></label>
+      <label>Order<select name="order"><option value="">default</option><option>asc</option><option>desc</option></select></label>
+      <label>Limit<input type="number" name="limit" min="1" max="500" step="1" value="${DEFAULT_LIMIT}" required></label>
+      <label>Offset<input type="number" name="offset" min="0" step="1" value="0" required></label>
+    </div></fieldset>`;
+  $("fields").innerHTML = html;
+
+  $("presets").innerHTML = e.presets.length ? "Examples:" + e.presets.map((p, i) =>
+    `<button type="button" class="chip" data-preset="${i}">${esc(p.name)}</button>`).join("") : "";
+
+  setValues(values || e.presets[0]?.v || {});
+  if (e.swap) $("swap").onclick = swap;
+  updateUrl();
+}
+
+function getValues() {
+  return Object.fromEntries(new FormData($("form")).entries());
+}
+
+function setValues(v) {
+  for (const [k, val] of Object.entries(v)) {
+    const el = $("form").elements[k];
+    if (el) el.value = val;
+  }
+}
+
+function swap() {
+  const v = getValues();
+  const swapped = {};
+  for (const [a, b] of current.swap) { swapped[a] = v[b]; swapped[b] = v[a]; }
+  setValues(swapped);
+  updateUrl();
+}
+
+function buildUrl() {
+  const v = getValues();
+  let path = current.path(v);
+  // Only spell out parameters that differ from the API's defaults
+  const q = [];
+  if (current.radius && v.r !== "" && v.r !== undefined && Number(v.r) !== 6) q.push(`r=${enc(v.r)}`);
+  if (current.sorts) {
+    if (v.sort !== "year") q.push(`sort=${enc(v.sort)}`);
+    if (v.order) q.push(`order=${enc(v.order)}`);
+    if (v.limit !== "" && Number(v.limit) !== DEFAULT_LIMIT) q.push(`limit=${enc(v.limit)}`);
+    if (v.offset !== "" && Number(v.offset) !== 0) q.push(`offset=${enc(v.offset)}`);
+  }
+  if (q.length) path += (path.includes("?") ? "&" : "?") + q.join("&");
+  return path;
+}
+
+function updateUrl() {
+  const path = buildUrl();
+  $("url").textContent = location.origin + path;
+  $("open").href = path;
+}
+
+async function run(ev) {
+  ev.preventDefault();
+  if (!$("form").reportValidity()) return;
+  const endpoint = current;  // the user may switch tabs while the request is in flight
+  const path = buildUrl();
+  const btn = $("run");
+  btn.disabled = true;
+  btn.textContent = "Running…";
+  const t0 = performance.now();
+  let res, body;
+  try {
+    res = await fetch(path, { headers: { Accept: "application/json" } });
+    const text = await res.text();
+    if (res.ok && endpoint.kind === "text") body = text;
+    else try { body = JSON.parse(text); } catch { body = { error: "non_json_response", detail: text.slice(0, 500) }; }
+  } catch (err) {
+    res = { ok: false, status: 0 };
+    body = { error: "network_error", detail: String(err) };
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Run";
+  }
+  showResults(endpoint, path, res, body, performance.now() - t0);
+}
+
+function showResults(endpoint, path, res, body, ms) {
+  $("results").classList.remove("hidden");
+  $("raw").textContent = typeof body === "string" ? body : JSON.stringify(body, null, 2);
+  $("dirs").classList.add("hidden");
+  $("text").classList.add("hidden");
+  $("pager").classList.add("hidden");
+  const status = res.status ? `HTTP ${res.status}` : "no response";
+  $("meta").innerHTML =
+    `<span class="${res.ok ? "status-ok" : ""}">${status}</span> · ${ms.toFixed(0)} ms · <code>${esc(path)}</code>`;
+
+  if (!res.ok) {
+    $("count").textContent = "Error";
+    $("studies").classList.add("hidden");
+    const detail = Array.isArray(body.detail)
+      ? body.detail.map(d => `${(d.loc || []).join(".")}: ${d.msg}`).join("; ")
+      : body.detail;
+    $("error").innerHTML = `<strong>${esc(body.error || "error")}</strong>: ${esc(detail || "")}`;
+    $("error").classList.remove("hidden");
+    return;
+  }
+
+  $("error").classList.add("hidden");
+  if (endpoint.kind === "text") {
+    $("count").textContent = "OK";
+    $("studies").classList.add("hidden");
+    $("text").textContent = body;
+    $("text").classList.remove("hidden");
+  } else {
+    $("studies").classList.remove("hidden");
+    if (endpoint.kind === "both") {
+      both = body;
+      showDirection("a_not_b");
+      $("dirs").classList.remove("hidden");
+    } else if (body.total !== undefined) {
+      setStudies(body.studies, body.total, true);
+      showPager(body);
+    } else {
+      setStudies(body.studies, body.count);
+    }
+  }
+  $("results").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function setStudies(list, count, paged = false) {
+  studies = list || [];
+  $("count").textContent = `${(count ?? studies.length).toLocaleString()} studies`;
+  $("filter").value = "";
+  $("filter").placeholder = `Filter ${paged ? "this page " : ""}by title, author, journal, year…`;
+  renderRows();
+}
+
+// Paginated responses: Prev/Next rewrite the offset field and run again
+function showPager(body) {
+  const first = body.count ? body.offset + 1 : 0;
+  $("range").textContent = `${first.toLocaleString()}–${(body.offset + body.count).toLocaleString()} of ${body.total.toLocaleString()}`;
+  $("prev").disabled = body.offset === 0;
+  $("prev").dataset.offset = Math.max(0, body.offset - body.limit);
+  $("next").disabled = body.next_offset === null;
+  $("next").dataset.offset = body.next_offset ?? "";
+  $("pager").classList.remove("hidden");
+}
+
+function goToPage(ev) {
+  const offset = ev.currentTarget.dataset.offset;
+  if (!current.sorts || offset === "") return;
+  $("form").elements.offset.value = offset;
+  updateUrl();
+  $("form").requestSubmit();
+}
+
+// /both responses carry two lists; the buttons pick which one the table shows
+function showDirection(dir) {
+  $("dirs").innerHTML = DIRECTIONS.map(([k, label]) =>
+    `<button type="button" class="tab" data-dir="${k}" aria-selected="${k === dir}">${label} · ${both[k].count.toLocaleString()}</button>`
+  ).join("");
+  setStudies(both[dir].studies, both[dir].count);
+}
+
+function renderRows() {
+  const q = $("filter").value.trim().toLowerCase();
+  const list = q
+    ? studies.filter(s => [s.title, s.authors, s.journal, s.year, s.study_id].join(" ").toLowerCase().includes(q))
+    : studies;
+  $("shown").textContent = q ? `${list.length} of ${studies.length} shown` : "";
+  const dist = studies.some(s => s.distance_mm != null);
+  $("head").innerHTML = `<tr><th>Year</th><th>Title</th><th>Authors</th><th>Journal</th>${dist ? "<th>Dist (mm)</th>" : ""}<th>PMID</th></tr>`;
+  $("rows").innerHTML = list.length
+    ? list.map(s => `<tr>
+        <td class="year">${esc(s.year)}</td>
+        <td>${esc(s.title)}</td>
+        <td class="authors">${esc(s.authors)}</td>
+        <td>${esc(s.journal)}</td>
+        ${dist ? `<td class="dist">${s.distance_mm == null ? "" : Number(s.distance_mm).toFixed(2)}</td>` : ""}
+        <td class="id"><a href="https://pubmed.ncbi.nlm.nih.gov/${enc(s.study_id)}/" target="_blank" rel="noopener">${esc(s.study_id)}</a></td>
+      </tr>`).join("")
+    : `<tr><td colspan="${dist ? 6 : 5}" class="empty">No studies.</td></tr>`;
+}
+
+$("tabs").addEventListener("click", ev => {
+  const btn = ev.target.closest(".tab");
+  if (!btn) return;
+  current = ENDPOINTS.find(e => e.id === btn.dataset.id);
+  renderTabs();
+  renderForm();
+  $("pager").classList.add("hidden");  // its offsets belong to the previous tab
+});
+$("prev").addEventListener("click", goToPage);
+$("next").addEventListener("click", goToPage);
+$("presets").addEventListener("click", ev => {
+  const chip = ev.target.closest(".chip");
+  if (!chip) return;
+  setValues({ ...current.presets[chip.dataset.preset].v, ...(current.sorts && { offset: 0 }) });
+  updateUrl();
+});
+$("dirs").addEventListener("click", ev => {
+  const btn = ev.target.closest("[data-dir]");
+  if (btn) showDirection(btn.dataset.dir);
+});
+$("form").addEventListener("input", ev => {
+  // A new search (or sort / page size) starts again from the first page
+  if (current.sorts && ev.target.name !== "offset") $("form").elements.offset.value = 0;
+  updateUrl();
+});
+$("form").addEventListener("submit", run);
+$("filter").addEventListener("input", renderRows);
+
+renderTabs();
+renderForm();
+</script>
+</body>
+</html>

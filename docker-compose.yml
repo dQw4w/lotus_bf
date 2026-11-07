@@ -1,0 +1,58 @@
+# Local development stack.
+#   docker compose up --build                 # app + API on http://localhost:8000 against local PostGIS
+#   docker compose --profile seed run --rm seed   # load data/*.parquet into the database
+#
+# Point either service at Supabase instead by exporting DATABASE_URL (or putting it in .env).
+
+x-database-url: &database-url
+  DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/neurosynth}
+
+services:
+  db:
+    # Multi-arch build of postgis/postgis (the official image has no arm64 variant)
+    image: imresamu/postgis:16-3.5
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: neurosynth
+    ports:
+      - "54322:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d neurosynth"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      <<: *database-url
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  seed:
+    profiles: ["seed"]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        WITH_TOOLS: "1"
+    environment:
+      <<: *database-url
+    volumes:
+      - ./data:/data:ro
+    command: ["python", "create_db.py"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

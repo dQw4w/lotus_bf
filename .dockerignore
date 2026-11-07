@@ -1,0 +1,10 @@
+.git
+.env
+**/.venv
+**/__pycache__
+**/node_modules
+frontend/dist
+backend/static/app
+backend/tests
+data
+*.zip

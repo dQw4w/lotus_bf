@@ -1,0 +1,16 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# One web service: FastAPI serves both the /api endpoints and the built React app.
+services:
+  - type: web
+    name: lotus-bf
+    runtime: docker
+    plan: free
+    region: singapore   # same region as the Supabase pooler (ap-southeast-1): ~1 ms DB round trips
+    dockerContext: .
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false   # set in the Render dashboard: Supabase session-pooler URI
+      - key: WEB_CONCURRENCY
+        value: "2"
