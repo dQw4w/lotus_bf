@@ -18,6 +18,7 @@
   --err-bg: #fdecec;
   --mark: #ffd9d6;
   --focus-dot: #3b82f6;
+  --bar-off: #d9d7d1;
   --radius: 10px;
   --shadow: 0 1px 2px rgb(0 0 0 / .04), 0 4px 16px rgb(0 0 0 / .04);
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -43,6 +44,7 @@
     --err-bg: #3a1c1c;
     --mark: #6b2423;
     --focus-dot: #60a5fa;
+    --bar-off: #3a3a42;
     --shadow: none;
   }
 }
@@ -51,7 +53,7 @@
   --bg: #111114; --surface: #19191d; --surface-2: #222228; --border: #2f2f36;
   --text: #ececf0; --text-2: #c2c2ca; --muted: #8d8c96; --accent: #8b7cf0; --accent-soft: #2a2546;
   --accent-text: #0f0f12; --term: #6aa8f5; --term-bg: #1b2a40; --point: #4cc584; --point-bg: #183026;
-  --not: #f07171; --err-bg: #3a1c1c; --mark: #6b2423; --focus-dot: #60a5fa; --shadow: none;
+  --not: #f07171; --err-bg: #3a1c1c; --mark: #6b2423; --focus-dot: #60a5fa; --bar-off: #3a3a42; --shadow: none;
 }
 
 * { box-sizing: border-box; }
@@ -209,6 +211,39 @@ h2 { font-size: 14px; font-weight: 650; }
 .term:hover .term__actions, .term:focus-within .term__actions { display: inline-flex; }
 @media (hover: none) { .term__actions { display: inline-flex; position: static; transform: none; background: none; } }
 .terms__related-head { display: flex; align-items: center; gap: 8px; }
+
+/* ------------------------------------------------------------ study filters */
+.filters { display: grid; gap: 8px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.filters__row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.filters__search { flex: 1 1 200px; }
+.btn--on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.chip--removable { display: inline-flex; gap: 6px; align-items: center; max-width: 100%; }
+
+.years { display: grid; gap: 4px; }
+.years__controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.years__readout { margin-left: auto; }
+/* Single-series column chart: one hue for the selected range, recessive gray outside it */
+.hist { display: flex; align-items: stretch; gap: 2px; height: 44px; }
+.hist__col {
+  flex: 1 1 0; max-width: 24px; min-width: 0; height: 100%; padding: 0; border: 0; background: none;
+  display: flex; align-items: flex-end; cursor: pointer; border-radius: 4px 4px 0 0;
+}
+.hist__col:hover, .hist__col:focus-visible { background: var(--surface-2); outline: none; }
+.hist__bar { width: 100%; background: var(--bar-off); border-radius: 4px 4px 0 0; transition: background .12s; }
+.hist__col.is-in .hist__bar { background: var(--accent); }
+.hist__axis { display: flex; justify-content: space-between; }
+
+.picker { position: relative; }
+.picker__pop {
+  position: absolute; z-index: 30; top: calc(100% + 4px); right: 0; width: min(380px, 86vw);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 28px rgb(0 0 0 / .18); padding: 8px; display: grid; gap: 6px;
+}
+.picker__search { width: 100%; }
+.picker__list { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow: auto; }
+.picker__opt { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.picker__opt:hover { background: var(--surface-2); }
+.picker__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ------------------------------------------------------------ studies */
 .table-wrap { overflow: auto; max-height: 640px; border: 1px solid var(--border); border-radius: 8px; transition: opacity .15s; }

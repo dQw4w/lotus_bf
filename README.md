@@ -72,6 +72,21 @@ The whole vocabulary (3,228 terms with counts) loads once, so suggestions need n
 The **Terms** panel lists every term with its count. Click to AND it in, hover for OR / NOT,
 and ≈ for related terms (ranked by Jaccard overlap of their study sets).
 
+### 4. Filtering the returned studies
+
+Above the study list:
+
+- **Keyword:** words in the title, authors or journal. Each word matches as a prefix and all must
+  match, so `eickh` finds Eickhoff and `emotional faces` needs both. It uses the existing full-text index.
+- **Year:** pick a from/to range, or click a bar in the per-year histogram to pick a single year
+  (click it again to clear).
+- **Journal:** a searchable multi-select with study counts. Picking several journals means any of them.
+
+Filters narrow the **brain map too**, so the map always shows the studies in the list. Counts are
+faceted: the histogram applies the keyword and journal filters but not the year filter, so it still
+shows every year you could pick (and the journal list works the same way). Filters are kept in the
+URL (`&s=faces&y0=2010&j=NeuroImage`) and stay when you change the query.
+
 ### Smaller things
 
 - Studies are sorted and paged **on the server** (the original downloaded every match, then sorted in the browser), and link to PubMed
@@ -112,10 +127,15 @@ Interactive docs: `/docs`. The new endpoints are all `GET`:
 | --- | --- |
 | `/api/query?q=&r=&sort=&order=&limit=&offset=` | studies matching the boolean query, paged, plus the parse (`interpreted`, `ast`, `terms`, `points`) |
 | `/api/query/map?q=&r=` | foci of all matching studies binned on the MNI 2 mm grid: flat `[i, j, k, n_studies, …]` |
+| `/api/query/facets?q=&r=` | year and journal counts of the matches, for the filter controls |
 | `/api/terms?q=&limit=` | terms ranked exact → prefix → word-prefix → substring, each with `n_studies` |
 | `/api/terms/{term}/related` | co-occurring terms with Jaccard similarity |
 | `/api/studies/{pmid}` | one study: metadata, all foci, top terms |
 | `/api/stats` | row counts |
+
+The three `/api/query*` endpoints accept the same optional study filters: `search=` (keyword),
+`year_min=`, `year_max=`, and `journal=` (repeat it for several). `/api/query` returns
+`total` (after filters) and `query_total` (before them).
 
 A bad query returns `400` with what went wrong and where:
 

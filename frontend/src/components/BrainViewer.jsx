@@ -22,7 +22,7 @@ const round1 = (v) => Math.round(v * 10) / 10
  * matching studies' foci, with query coordinates and the selected study's foci
  * drawn as spheres.
  */
-export function BrainViewer ({ map, mapLoading, mapError, points, studyFoci, onAddPoint }) {
+export function BrainViewer ({ map, mapLoading, mapError, filtered, points, studyFoci, onAddPoint }) {
   const canvasRef = useRef(null)
   const nvRef = useRef(null)
   const overlayRef = useRef(null)
@@ -233,7 +233,7 @@ export function BrainViewer ({ map, mapLoading, mapError, points, studyFoci, onA
           {mapLoading && <span className='badge'>Computing map…</span>}
           {!mapLoading && map && (
             <span className='badge'>
-              {fmt(map.total)} studies · {fmt(map.n_foci)} foci
+              {fmt(map.total)} studies · {fmt(map.n_foci)} foci{filtered ? ' · filtered' : ''}
             </span>
           )}
           {mapError && <span className='badge badge--err'>Map unavailable</span>}

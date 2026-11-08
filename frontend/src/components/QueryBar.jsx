@@ -188,7 +188,7 @@ function Interpretation ({ info }) {
     <div className='interp'>
       <span className='muted'>Interpreted as</span>
       <span className='interp__expr'><Ast node={info.ast} radius={info.radius_mm} counts={info.terms} /></span>
-      <span className='interp__total'><b className='num'>{fmt(info.total)}</b> studies</span>
+      <span className='interp__total'><b className='num'>{fmt(info.query_total ?? info.total)}</b> studies</span>
     </div>
   )
 }

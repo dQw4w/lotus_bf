@@ -3,7 +3,7 @@ import { BrainViewer } from './components/BrainViewer'
 import { QueryBar } from './components/QueryBar'
 import { StudiesTable } from './components/StudiesTable'
 import { TermsPanel } from './components/TermsPanel'
-import { api } from './lib/api'
+import { EMPTY_FILTERS, api, filterParams, filtersActive, readFiltersFromUrl, writeFiltersToUrl } from './lib/api'
 import { appendWith, termToken } from './lib/queryText'
 
 const fmt = (n) => n?.toLocaleString('en-US')
@@ -18,6 +18,8 @@ function readUrl () {
 export default function App () {
   const [{ q: query, r: radius }, setCommitted] = useState(readUrl)
   const [draft, setDraft] = useState(query)
+  const [filters, setFiltersState] = useState(() => ({ ...EMPTY_FILTERS, ...readFiltersFromUrl(new URLSearchParams(window.location.search)) }))
+  const filterKey = JSON.stringify(filterParams(filters))
   const [info, setInfo] = useState(null)
   const [error, setError] = useState(null)
   const [vocab, setVocab] = useState([])
@@ -42,9 +44,20 @@ export default function App () {
   }, [radius])
 
   useEffect(() => {
-    const onPop = () => { const s = readUrl(); setCommitted(s); setDraft(s.q) }
+    const onPop = () => {
+      const s = readUrl(); setCommitted(s); setDraft(s.q)
+      setFiltersState({ ...EMPTY_FILTERS, ...readFiltersFromUrl(new URLSearchParams(window.location.search)) })
+    }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
+  // Study filters (keyword / year / journal) narrow both the list and the brain map
+  const setFilters = useCallback((f) => {
+    setFiltersState(f)
+    const url = new URL(window.location.href)
+    writeFiltersToUrl(url.searchParams, f)
+    if (url.href !== window.location.href) window.history.replaceState(null, '', url)
   }, [])
 
   // Vocabulary + stats once. Render's free tier sleeps, so flag a slow first response.
@@ -61,12 +74,12 @@ export default function App () {
     if (!query) { setMap(null); setMapError(null); return }
     const ac = new AbortController()
     setMapLoading(true)
-    api.map({ q: query, r: radius }, { signal: ac.signal })
+    api.map({ q: query, r: radius, ...filterParams(filters) }, { signal: ac.signal })
       .then((d) => { setMap(d); setMapError(null) })
       .catch((e) => { if (e.name !== 'AbortError') { setMap(null); setMapError(e.message) } })
       .finally(() => { if (!ac.signal.aborted) setMapLoading(false) })
     return () => ac.abort()
-  }, [query, radius])
+  }, [query, radius, filterKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Selected study (detail card + its foci in the viewer)
   useEffect(() => {
@@ -120,6 +133,8 @@ export default function App () {
         <StudiesTable
           query={query}
           radius={radius}
+          filters={filters}
+          setFilters={setFilters}
           onResult={onResult}
           selectedId={selectedId}
           onSelect={setSelectedId}
@@ -131,6 +146,7 @@ export default function App () {
           map={map}
           mapLoading={mapLoading}
           mapError={error ? null : mapError}
+          filtered={filtersActive(filters)}
           points={info?.points}
           studyFoci={study?.foci}
           onAddPoint={addToken}

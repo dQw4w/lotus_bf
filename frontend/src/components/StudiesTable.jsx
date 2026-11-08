@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { api } from '../lib/api'
+import { api, filterParams, filtersActive } from '../lib/api'
+import { StudyFilters } from './StudyFilters'
 
 const PAGE = 25
 const fmt = (n) => n?.toLocaleString('en-US')
@@ -9,20 +10,21 @@ const COLS = [
   { key: 'journal', label: 'Journal' },
 ]
 
-export function StudiesTable ({ query, radius, onResult, selectedId, onSelect, study, studyError, onAddTerm }) {
+export function StudiesTable ({ query, radius, filters, setFilters, onResult, selectedId, onSelect, study, studyError, onAddTerm }) {
   const [sort, setSort] = useState({ key: 'year', order: 'desc' })
   const [offset, setOffset] = useState(0)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  useEffect(() => { setOffset(0) }, [query, radius, sort])
+  const filterKey = JSON.stringify(filterParams(filters))
+  useEffect(() => { setOffset(0) }, [query, radius, sort, filterKey])
 
   useEffect(() => {
     if (!query) { setData(null); setError(null); onResult(null, null); return }
     const ac = new AbortController()
     setLoading(true)
-    api.query({ q: query, r: radius, sort: sort.key, order: sort.order, limit: PAGE, offset }, { signal: ac.signal })
+    api.query({ q: query, r: radius, ...filterParams(filters), sort: sort.key, order: sort.order, limit: PAGE, offset }, { signal: ac.signal })
       .then((d) => { setData(d); setError(null); onResult(d, null) })
       .catch((e) => {
         if (e.name === 'AbortError') return
@@ -31,7 +33,7 @@ export function StudiesTable ({ query, radius, onResult, selectedId, onSelect, s
       })
       .finally(() => { if (!ac.signal.aborted) setLoading(false) })
     return () => ac.abort()
-  }, [query, radius, sort, offset]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, radius, sort, offset, filterKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeSort = (key) => setSort((s) => (s.key === key
     ? { key, order: s.order === 'asc' ? 'desc' : 'asc' }
@@ -45,8 +47,16 @@ export function StudiesTable ({ query, radius, onResult, selectedId, onSelect, s
     <section className='card studies' aria-label='Studies'>
       <div className='card__head'>
         <h2>Studies</h2>
-        {data && <span className='muted small'><b className='num'>{fmt(total)}</b> matching</span>}
+        {data && (
+          <span className='muted small'>
+            {filtersActive(filters)
+              ? <><b className='num'>{fmt(total)}</b> of {fmt(data.query_total)} after filters</>
+              : <><b className='num'>{fmt(total)}</b> matching</>}
+          </span>
+        )}
       </div>
+
+      {query && !error && <StudyFilters query={query} radius={radius} filters={filters} setFilters={setFilters} />}
 
       {selectedId && <StudyDetail s={study} err={studyError} onClose={() => onSelect(null)} onAddTerm={onAddTerm} />}
 
@@ -71,7 +81,9 @@ export function StudiesTable ({ query, radius, onResult, selectedId, onSelect, s
                 <tr key={i} className='row-skel'><td colSpan={3}><div /></td></tr>
               ))}
               {data?.studies.length === 0 && (
-                <tr><td colSpan={3} className='muted pad'>No studies match this query.</td></tr>
+                <tr><td colSpan={3} className='muted pad'>
+                  {filtersActive(filters) ? 'No studies match these filters.' : 'No studies match this query.'}
+                </td></tr>
               )}
               {data?.studies.map((s) => (
                 <tr
