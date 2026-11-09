@@ -229,6 +229,22 @@ def query_studies(q: QueryString, r: Radius = DEFAULT_RADIUS,
     }
 
 
+@router.get("/query/count")
+def query_counts(q: Annotated[list[str], Query(description="Boolean query; repeat for several (max 5)")],
+                 r: Radius = DEFAULT_RADIUS, conn: Connection = Depends(get_conn)):
+    """
+    Study counts for several queries at once (no filters, no rows). The query builder
+    uses it for its running totals: rows 1, 1-2 and 1-3.
+    """
+    if not 1 <= len(q) <= 5 or any(not 1 <= len(one) <= 1000 for one in q):
+        raise QueryError("Pass 1 to 5 queries of 1 to 1000 characters", extra={"position": None, "suggestions": []})
+    out = []
+    for one in q:
+        _, cq = _compile(one, r)
+        out.append({"query": one, "total": _query_total(conn, cq)})
+    return {"counts": out}
+
+
 @router.get("/query/map")
 def query_map(q: QueryString, r: Radius = DEFAULT_RADIUS, filters: StudyFilters = Depends(study_filters),
               conn: Connection = Depends(get_conn)):

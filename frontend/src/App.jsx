@@ -117,6 +117,7 @@ export default function App () {
       </header>
 
       <QueryBar
+        query={query}
         draft={draft}
         setDraft={setDraft}
         onSubmit={(q) => commit(q)}

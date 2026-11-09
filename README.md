@@ -48,7 +48,31 @@ boolean `WHERE` over them. That guarantees each PostGIS sphere search runs once.
 materializing, Postgres sometimes turned a leaf into a per-row semi-join and a simple query hit
 Supabase's 2-minute statement timeout.
 
-### 2. A real 3D viewer
+### 2. A query builder for people who don't write boolean logic
+
+The query bar has two tabs. **Builder** (the default) has three boxes, the same layout as
+Google's and PubMed's advanced search:
+
+| Box | Means | Becomes |
+| --- | --- | --- |
+| **All of these** | must match every one | `a AND b` |
+| **Any of these** | must match at least one | `(c OR d)` |
+| **None of these** | must match none | `NOT e AND NOT f` |
+
+- Each box takes terms (autocomplete with study counts) and locations typed as `x, y, z`
+  (a 4th number sets the radius). Adding an item that is already in another box moves it.
+- Each row shows how many studies are left after it and the rows above, so you see what every row does
+  (`amygdala` → 1,579, `+ fear or anxiety` → 375, `none of [22, 0, -20]` → 298).
+- The builder writes the text query, and the **Text** tab shows it. A text query, example,
+  term-panel click or brain click that fits the three boxes appears in the builder; one that
+  doesn't, such as `(A AND B) OR C`, shows a note with **Edit as text** / **Start over here**.
+
+Under every query (in both tabs), a sentence says what will run in plain English, e.g. *Studies that
+mention "amygdala", and mention "fear" or "anxiety", and report no peak within 6 mm of [22, 0, -20].*
+It also states what "mention" (the phrase appears in the abstract) and "peak" (a coordinate in the
+paper's results tables) mean.
+
+### 3. A real 3D viewer
 
 The old viewer was a hand-written 2D canvas slicer. The new one uses [Niivue](https://github.com/niivue/niivue)
 (WebGL2) to volume-render the MNI152 template with the density map of the matching studies:
@@ -64,7 +88,7 @@ The old viewer was a hand-written 2D canvas slicer. The new one uses [Niivue](ht
 
 The map value is the share of matching studies that report a focus nearby, so it reads on a "% of studies" scale.
 
-### 3. Term search like ns-nano-hw08, but instant
+### 4. Term search like ns-nano-hw08, but instant
 
 The search box autocompletes the term you're typing, **wherever the cursor is in the expression**,
 and shows how many studies each term has (`posterior cingulate — 947 studies`). Use ↑/↓ and Tab/Enter.
@@ -72,7 +96,7 @@ The whole vocabulary (3,228 terms with counts) loads once, so suggestions need n
 The **Terms** panel lists every term with its count. Click to AND it in, hover for OR / NOT,
 and ≈ for related terms (ranked by Jaccard overlap of their study sets).
 
-### 4. Filtering the returned studies
+### 5. Filtering the returned studies
 
 Above the study list:
 
@@ -106,8 +130,8 @@ URL (`&s=faces&y0=2010&j=NeuroImage`) and stay when you change the query.
 │   ├── public/mni_2mm.nii.gz  MNI152 2 mm brain template (same file as the original)
 │   └── src/
 │       ├── App.jsx            state, URL sync, data fetching
-│       ├── components/        QueryBar, TermsPanel, StudiesTable, BrainViewer
-│       └── lib/               api client, query-text helpers, density map + NIfTI writer
+│       ├── components/        QueryBar, QueryBuilder, TermsPanel, StudiesTable, StudyFilters, BrainViewer
+│       └── lib/               api client, query-text and builder helpers, density map + NIfTI writer
 ├── backend/                   FastAPI (see backend/README.md)
 │   ├── boolean_query.py       query language: lexer, parser, AST → SQL
 │   ├── vocab.py               cached term vocabulary, ranking, suggestions
@@ -127,13 +151,14 @@ Interactive docs: `/docs`. The new endpoints are all `GET`:
 | --- | --- |
 | `/api/query?q=&r=&sort=&order=&limit=&offset=` | studies matching the boolean query, paged, plus the parse (`interpreted`, `ast`, `terms`, `points`) |
 | `/api/query/map?q=&r=` | foci of all matching studies binned on the MNI 2 mm grid: flat `[i, j, k, n_studies, …]` |
+| `/api/query/count?q=&q=&r=` | study counts for up to 5 queries at once (the builder's running totals) |
 | `/api/query/facets?q=&r=` | year and journal counts of the matches, for the filter controls |
 | `/api/terms?q=&limit=` | terms ranked exact → prefix → word-prefix → substring, each with `n_studies` |
 | `/api/terms/{term}/related` | co-occurring terms with Jaccard similarity |
 | `/api/studies/{pmid}` | one study: metadata, all foci, top terms |
 | `/api/stats` | row counts |
 
-The three `/api/query*` endpoints accept the same optional study filters: `search=` (keyword),
+`/api/query`, `/api/query/map` and `/api/query/facets` accept the same optional study filters: `search=` (keyword),
 `year_min=`, `year_max=`, and `journal=` (repeat it for several). `/api/query` returns
 `total` (after filters) and `query_total` (before them).
 

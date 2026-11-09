@@ -30,6 +30,7 @@ export const api = {
   query: (params, opts) => getJSON('/api/query', params, opts),
   map: (params, opts) => getJSON('/api/query/map', params, opts),
   facets: (params, opts) => getJSON('/api/query/facets', params, opts),
+  counts: (params, opts) => getJSON('/api/query/count', params, opts),
   study: (id, opts) => getJSON(`/api/studies/${encodeURIComponent(id)}`, {}, opts),
 }
 

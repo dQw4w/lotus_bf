@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { api } from '../lib/api'
+import { EMPTY_SPEC, cumulativeQueries, describeQuery, specFromAst, specToQuery } from '../lib/builder'
 import { currentFragment, rankTerms, replaceRange, termToken } from '../lib/queryText'
+import { QueryBuilder } from './QueryBuilder'
 
 const EXAMPLES = [
   ['"posterior cingulate" NOT "ventromedial prefrontal"', 'PCC but not vmPFC'],
@@ -11,7 +14,21 @@ const EXAMPLES = [
 
 const fmt = (n) => n?.toLocaleString('en-US')
 
-export function QueryBar ({ draft, setDraft, onSubmit, vocab, info, error, loading, radius, setRadius }) {
+const MODE_KEY = 'lotus-bf.queryMode'
+const readMode = () => { try { return localStorage.getItem(MODE_KEY) === 'text' ? 'text' : 'builder' } catch { return 'builder' } }
+
+export function QueryBar ({ query, draft, setDraft, onSubmit, vocab, info, error, loading, radius, setRadius }) {
+  const [mode, setModeState] = useState(readMode)
+  const setMode = (m) => { setModeState(m); try { localStorage.setItem(MODE_KEY, m) } catch {} }
+  const builder = useBuilder({ query, info, error, radius, active: mode === 'builder' })
+  const runSpec = (next) => {
+    const q = specToQuery(next)
+    builder.adopt(next, q)
+    setDraft(q)
+    onSubmit(q)
+  }
+  const clearAll = () => { builder.adopt(EMPTY_SPEC, ''); setDraft(''); onSubmit('') }
+
   const inputRef = useRef(null)
   const [caret, setCaret] = useState(0)
   const [open, setOpen] = useState(false)
@@ -87,6 +104,25 @@ export function QueryBar ({ draft, setDraft, onSubmit, vocab, info, error, loadi
 
   return (
     <section className='querybar card' aria-label='Query'>
+      <div className='seg querybar__mode' role='tablist' aria-label='Query editor'>
+        <button type='button' role='tab' className='seg__btn' aria-selected={mode === 'builder'} onClick={() => setMode('builder')}>Builder</button>
+        <button type='button' role='tab' className='seg__btn' aria-selected={mode === 'text'} onClick={() => setMode('text')}>Text</button>
+      </div>
+
+      {mode === 'builder'
+        ? (
+          <QueryBuilder
+            spec={builder.spec}
+            onChange={runSpec}
+            vocab={vocab}
+            radius={radius}
+            totals={builder.totals}
+            unsupported={builder.unsupported}
+            onEditText={() => setMode('text')}
+            onReset={clearAll}
+          />
+          )
+        : (
       <form className='querybar__row' onSubmit={(e) => { e.preventDefault(); setOpen(false); onSubmit(draft) }}>
         <div className='combo'>
           <input
@@ -129,13 +165,14 @@ export function QueryBar ({ draft, setDraft, onSubmit, vocab, info, error, loadi
         </div>
         <button className='btn btn--primary' type='submit' disabled={loading}>{loading ? 'Searching…' : 'Search'}</button>
       </form>
+          )}
 
       <div className='querybar__tools'>
         <div className='ops' role='group' aria-label='Insert operator'>
-          {['AND', 'OR', 'NOT', '(', ')'].map((op) => (
+          {mode === 'text' && ['AND', 'OR', 'NOT', '(', ')'].map((op) => (
             <button key={op} type='button' className='btn btn--ghost btn--sm mono' onClick={() => insert(op)}>{op}</button>
           ))}
-          <button type='button' className='btn btn--ghost btn--sm' onClick={() => { setDraft(''); onSubmit(''); inputRef.current?.focus() }}>Clear</button>
+          <button type='button' className='btn btn--ghost btn--sm' onClick={() => { clearAll(); inputRef.current?.focus() }}>Clear</button>
           <label className='radius small' title='Default sphere radius for [x, y, z] (override per point with a 4th number)'>
             Radius
             <select className='input input--sm' value={radius} onChange={(e) => setRadius(+e.target.value)}>
@@ -183,12 +220,65 @@ function QueryError ({ draft, error, onPick }) {
   )
 }
 
+/**
+ * Builder state that follows the committed query: a query typed in the Text tab (or added
+ * from the terms panel / brain) is shown in the builder once its parse comes back, if it
+ * fits the three boxes. A query the builder produced itself keeps the user's layout.
+ */
+function useBuilder ({ query, info, error, radius, active }) {
+  const [spec, setSpec] = useState(EMPTY_SPEC)
+  const [unsupported, setUnsupported] = useState(null)
+  const own = useRef('') // the last query text the builder produced (or adopted)
+
+  useEffect(() => {
+    if (!query) { setSpec(EMPTY_SPEC); setUnsupported(null); own.current = ''; return }
+    if (query === own.current) { setUnsupported(null); return }
+    if (error?.query === query) { setUnsupported('error'); return }
+    if (info?.query !== query) return // parse not back yet
+    const s = specFromAst(info.ast)
+    if (s) { setSpec(s); setUnsupported(null); own.current = query } else setUnsupported('grouping')
+  }, [query, info, error])
+
+  // Running totals: rows 1, 1–2, 1–3. The full query's total comes from the main result.
+  const [, bump] = useState(0)
+  const cache = useRef(new Map())
+  const full = specToQuery(spec)
+  const cumulative = cumulativeQueries(spec)
+  const key = (q) => `${radius}|${q}`
+  const missing = active && !unsupported ? cumulative.filter((q) => q && q !== full && !cache.current.has(key(q))) : []
+  const missingKey = missing.join('\n')
+  useEffect(() => {
+    if (!missing.length) return
+    const ac = new AbortController()
+    api.counts({ q: missing, r: radius }, { signal: ac.signal })
+      .then((d) => { d.counts.forEach((c) => cache.current.set(key(c.query), c.total)); bump((n) => n + 1) })
+      .catch(() => {})
+    return () => ac.abort()
+  }, [missingKey, radius]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const totals = cumulative.map((q) => {
+    if (!q) return null
+    // The spec mirrors the committed query (same meaning, maybe different spelling)
+    if (q === full) return info?.query === query && query === own.current ? info.query_total ?? info.total : null
+    return cache.current.get(key(q)) ?? null
+  })
+
+  const adopt = (next, q) => { setSpec(next); setUnsupported(null); own.current = q }
+  return { spec, unsupported, totals, adopt }
+}
+
 function Interpretation ({ info }) {
   return (
     <div className='interp'>
-      <span className='muted'>Interpreted as</span>
-      <span className='interp__expr'><Ast node={info.ast} radius={info.radius_mm} counts={info.terms} /></span>
-      <span className='interp__total'><b className='num'>{fmt(info.query_total ?? info.total)}</b> studies</span>
+      <div className='interp__line'>
+        <span className='muted'>Interpreted as</span>
+        <span className='interp__expr'><Ast node={info.ast} radius={info.radius_mm} counts={info.terms} /></span>
+        <span className='interp__total'><b className='num'>{fmt(info.query_total ?? info.total)}</b> studies</span>
+      </div>
+      <p className='interp__words'>
+        {describeQuery(info.ast, info.radius_mm)}
+        <span className='muted small'> “Mention” means the phrase appears in the abstract; a “peak” is a coordinate in the paper’s results tables.</span>
+      </p>
     </div>
   )
 }
