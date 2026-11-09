@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { BrainViewer } from './components/BrainViewer'
 import { QueryBar } from './components/QueryBar'
+import { Splitter, clamp, useLayout } from './components/Splitter'
 import { StudiesTable } from './components/StudiesTable'
 import { TermsPanel } from './components/TermsPanel'
 import { EMPTY_FILTERS, api, filterParams, filtersActive, readFiltersFromUrl, writeFiltersToUrl } from './lib/api'
@@ -91,6 +92,28 @@ export default function App () {
     return () => ac.abort()
   }, [selectedId])
 
+  // Resizable panels: query bar height, terms / studies / brain widths, panel height
+  const { layout, set: setLayout, reset: resetLayout, custom: layoutCustom } = useLayout()
+  const queryRef = useRef(null)
+  const gridRef = useRef(null)
+  const dragStart = useRef({})
+  const box = (sel) => gridRef.current?.querySelector(sel)?.getBoundingClientRect() ?? { width: 0, height: 0 }
+  const measure = () => {
+    dragStart.current = {
+      query: queryRef.current?.getBoundingClientRect().height ?? 0,
+      terms: box('.terms').width,
+      studies: box('.studies').width,
+      brain: box('.viewer').width,
+      panel: box('.studies').height,
+    }
+  }
+  const gridStyle = {
+    '--w-terms': layout.termsW != null ? `${layout.termsW}px` : undefined,
+    '--fr-studies': layout.brainFrac != null ? `${1 - layout.brainFrac}fr` : undefined,
+    '--fr-brain': layout.brainFrac != null ? `${layout.brainFrac}fr` : undefined,
+    '--panel-h': layout.panelH != null ? `${layout.panelH}px` : undefined,
+  }
+
   const onResult = useCallback((d, err) => { setInfo(d); setError(err) }, [])
 
   // Clicking a term / coordinate appends it to the draft and runs the query
@@ -112,11 +135,14 @@ export default function App () {
           {stats
             ? <>{fmt(stats.studies)} studies · {fmt(stats.foci)} foci · {fmt(stats.terms)} terms</>
             : waking ? <span className='badge'>Waking up the server (free tier, ~30 s)…</span> : null}
+          {layoutCustom && <button className='btn btn--ghost btn--xs' onClick={resetLayout} title='Restore the default panel sizes'>Reset layout</button>}
           <a href='/docs' target='_blank' rel='noreferrer'>API</a>
         </div>
       </header>
 
       <QueryBar
+        boxRef={queryRef}
+        height={layout.queryH}
         query={query}
         draft={draft}
         setDraft={setDraft}
@@ -129,8 +155,27 @@ export default function App () {
         setRadius={(r) => commit(query, r)}
       />
 
-      <main className='grid'>
+      <Splitter
+        orientation='horizontal'
+        label='Query panel height'
+        className='splitter--query'
+        onStart={measure}
+        onMove={(d) => setLayout({ queryH: Math.round(clamp(dragStart.current.query + d, 72, window.innerHeight * 0.9)) })}
+        onReset={() => setLayout({ queryH: null })}
+      />
+
+      <main className='grid' ref={gridRef} style={gridStyle}>
         <TermsPanel vocab={vocab} vocabError={vocabError} onAdd={addTerm} />
+        <Splitter
+          orientation='vertical'
+          label='Terms panel width'
+          onStart={measure}
+          onMove={(d) => {
+            const { terms, studies } = dragStart.current
+            setLayout({ termsW: Math.round(clamp(terms + d, 160, Math.min(600, terms + studies - 400))) })
+          }}
+          onReset={() => setLayout({ termsW: null })}
+        />
         <StudiesTable
           query={query}
           radius={radius}
@@ -143,6 +188,18 @@ export default function App () {
           studyError={studyError}
           onAddTerm={addTerm}
         />
+        <Splitter
+          orientation='vertical'
+          label='Studies and brain widths'
+          onStart={measure}
+          onMove={(d) => {
+            const { studies, brain } = dragStart.current
+            const both = studies + brain
+            const b = clamp(brain - d, Math.max(300, both * 0.2), Math.min(both - 400, both * 0.8))
+            setLayout({ brainFrac: Math.round((b / both) * 1000) / 1000 })
+          }}
+          onReset={() => setLayout({ brainFrac: null })}
+        />
         <BrainViewer
           map={map}
           mapLoading={mapLoading}
@@ -153,6 +210,15 @@ export default function App () {
           onAddPoint={addToken}
         />
       </main>
+
+      <Splitter
+        orientation='horizontal'
+        label='Panel height'
+        className='splitter--panels'
+        onStart={measure}
+        onMove={(d) => setLayout({ panelH: Math.round(clamp(dragStart.current.panel + d, 420, 2400)) })}
+        onReset={() => setLayout({ panelH: null })}
+      />
 
       <footer className='footer small muted'>
         Data: <a href='https://neurosynth.org' target='_blank' rel='noreferrer'>Neurosynth</a> (abstract TF-IDF terms, reported MNI foci).

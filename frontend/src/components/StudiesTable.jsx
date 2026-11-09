@@ -8,6 +8,7 @@ const COLS = [
   { key: 'year', label: 'Year' },
   { key: 'title', label: 'Title' },
   { key: 'journal', label: 'Journal' },
+  { key: 'study_id', label: 'PMID', title: 'PubMed ID (opens PubMed)' },
 ]
 
 export function StudiesTable ({ query, radius, filters, setFilters, onResult, selectedId, onSelect, study, studyError, onAddTerm }) {
@@ -68,7 +69,7 @@ export function StudiesTable ({ query, radius, filters, setFilters, onResult, se
             <thead>
               <tr>
                 {COLS.map((c) => (
-                  <th key={c.key} aria-sort={sort.key === c.key ? (sort.order === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                  <th key={c.key} className={`col-${c.key}`} title={c.title} aria-sort={sort.key === c.key ? (sort.order === 'asc' ? 'ascending' : 'descending') : 'none'}>
                     <button className='th-btn' onClick={() => changeSort(c.key)}>
                       {c.label}<span className='sort-ind'>{sort.key === c.key ? (sort.order === 'asc' ? '▲' : '▼') : ''}</span>
                     </button>
@@ -78,10 +79,10 @@ export function StudiesTable ({ query, radius, filters, setFilters, onResult, se
             </thead>
             <tbody>
               {!data && Array.from({ length: 8 }, (_, i) => (
-                <tr key={i} className='row-skel'><td colSpan={3}><div /></td></tr>
+                <tr key={i} className='row-skel'><td colSpan={COLS.length}><div /></td></tr>
               ))}
               {data?.studies.length === 0 && (
-                <tr><td colSpan={3} className='muted pad'>
+                <tr><td colSpan={COLS.length} className='muted pad'>
                   {filtersActive(filters) ? 'No studies match these filters.' : 'No studies match this query.'}
                 </td></tr>
               )}
@@ -92,12 +93,18 @@ export function StudiesTable ({ query, radius, filters, setFilters, onResult, se
                   onClick={() => onSelect(s.study_id === selectedId ? null : s.study_id)}
                   title='Show this study’s foci in the brain viewer'
                 >
-                  <td className='num'>{s.year ?? ''}</td>
-                  <td>
+                  <td className='num col-year'>{s.year ?? ''}</td>
+                  <td className='col-title'>
                     <div className='study-title'>{s.title}</div>
                     <div className='muted small clamp1'>{s.authors}</div>
                   </td>
-                  <td className='small'>{s.journal}</td>
+                  <td className='small col-journal'>{s.journal}</td>
+                  <td className='small num col-study_id'>
+                    <a href={`https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(s.study_id)}/`} target='_blank' rel='noopener noreferrer'
+                      title={`Open PMID ${s.study_id} on PubMed (new tab)`} onClick={(e) => e.stopPropagation()}>
+                      {s.study_id}<span aria-hidden> ↗</span>
+                    </a>
+                  </td>
                 </tr>
               ))}
             </tbody>

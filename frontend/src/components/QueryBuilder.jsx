@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useAnchoredStyle } from '../lib/anchor'
 import { itemKey, parseLocation } from '../lib/builder'
 import { rankTerms } from '../lib/queryText'
 
@@ -103,6 +104,7 @@ function AddInput ({ vocab, radius, onAdd, label, autoFocus }) {
   const pick = (o) => { onAdd(o.item); setText(''); setOpen(false); ref.current?.focus() }
   const show = open && text.trim().length > 0
   const id = useId()
+  const listStyle = useAnchoredStyle(ref, show)
 
   return (
     <div className='combo brow__add'>
@@ -131,7 +133,7 @@ function AddInput ({ vocab, radius, onAdd, label, autoFocus }) {
         }}
       />
       {show && (
-        <ul className='combo__list' id={id} role='listbox'>
+        <ul className='combo__list' id={id} role='listbox' style={listStyle}>
           {options.length === 0 && <li className='combo__hint'>No term matches. Locations are typed as x, y, z (optionally a 4th number for the radius).</li>}
           {options.map((o, i) => (
             <li key={o.label} id={`${id}-${i}`} role='option' aria-selected={i === active} className={i === active ? 'is-active' : ''}

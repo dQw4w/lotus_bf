@@ -113,7 +113,11 @@ URL (`&s=faces&y0=2010&j=NeuroImage`) and stay when you change the query.
 
 ### Smaller things
 
-- Studies are sorted and paged **on the server** (the original downloaded every match, then sorted in the browser), and link to PubMed
+- Studies are sorted and paged **on the server** (the original downloaded every match, then sorted in the browser).
+  A **PMID** column links each study to PubMed in a new tab (sortable, too)
+- **Resizable panels:** drag the handles between the query bar, Terms, Studies and Brain panels (or focus one
+  and use the arrow keys). Double-click a handle to reset it; **Reset layout** in the header restores all.
+  Sizes are remembered in the browser. On screens narrower than 1280 px the panels stack as before
 - clicking a study shows its metadata, its top TF-IDF terms (click one to add it), and its foci on the brain
 - the query lives in the URL (`?q=…&r=…`), so links are shareable and back/forward work
 - light/dark theme, works on phones
@@ -130,7 +134,7 @@ URL (`&s=faces&y0=2010&j=NeuroImage`) and stay when you change the query.
 │   ├── public/mni_2mm.nii.gz  MNI152 2 mm brain template (same file as the original)
 │   └── src/
 │       ├── App.jsx            state, URL sync, data fetching
-│       ├── components/        QueryBar, QueryBuilder, TermsPanel, StudiesTable, StudyFilters, BrainViewer
+│       ├── components/        QueryBar, QueryBuilder, TermsPanel, StudiesTable, StudyFilters, BrainViewer, Splitter
 │       └── lib/               api client, query-text and builder helpers, density map + NIfTI writer
 ├── backend/                   FastAPI (see backend/README.md)
 │   ├── boolean_query.py       query language: lexer, parser, AST → SQL

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useAnchoredStyle } from '../lib/anchor'
 import { api } from '../lib/api'
 import { EMPTY_SPEC, cumulativeQueries, describeQuery, specFromAst, specToQuery } from '../lib/builder'
 import { currentFragment, rankTerms, replaceRange, termToken } from '../lib/queryText'
@@ -17,7 +18,7 @@ const fmt = (n) => n?.toLocaleString('en-US')
 const MODE_KEY = 'lotus-bf.queryMode'
 const readMode = () => { try { return localStorage.getItem(MODE_KEY) === 'text' ? 'text' : 'builder' } catch { return 'builder' } }
 
-export function QueryBar ({ query, draft, setDraft, onSubmit, vocab, info, error, loading, radius, setRadius }) {
+export function QueryBar ({ boxRef, height, query, draft, setDraft, onSubmit, vocab, info, error, loading, radius, setRadius }) {
   const [mode, setModeState] = useState(readMode)
   const setMode = (m) => { setModeState(m); try { localStorage.setItem(MODE_KEY, m) } catch {} }
   const builder = useBuilder({ query, info, error, radius, active: mode === 'builder' })
@@ -78,6 +79,7 @@ export function QueryBar ({ query, draft, setDraft, onSubmit, vocab, info, error
   }
 
   const showList = open && suggestions.length > 0
+  const listStyle = useAnchoredStyle(inputRef, showList)
 
   const onKeyDown = (e) => {
     if (showList) {
@@ -103,7 +105,7 @@ export function QueryBar ({ query, draft, setDraft, onSubmit, vocab, info, error
   }
 
   return (
-    <section className='querybar card' aria-label='Query'>
+    <section ref={boxRef} className={`querybar card ${height != null ? 'is-sized' : ''}`} style={height != null ? { height } : undefined} aria-label='Query'>
       <div className='seg querybar__mode' role='tablist' aria-label='Query editor'>
         <button type='button' role='tab' className='seg__btn' aria-selected={mode === 'builder'} onClick={() => setMode('builder')}>Builder</button>
         <button type='button' role='tab' className='seg__btn' aria-selected={mode === 'text'} onClick={() => setMode('text')}>Text</button>
@@ -144,7 +146,7 @@ export function QueryBar ({ query, draft, setDraft, onSubmit, vocab, info, error
             onBlur={() => setTimeout(() => setOpen(false), 120)}
           />
           {showList && (
-            <ul className='combo__list' id='term-suggestions' role='listbox'>
+            <ul className='combo__list' id='term-suggestions' role='listbox' style={listStyle}>
               {suggestions.map((s, i) => (
                 <li
                   key={s.term}

@@ -84,17 +84,44 @@ h2 { font-size: 14px; font-weight: 650; }
 
 .grid {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr) minmax(0, 1.25fr);
-  gap: 12px;
-  align-items: start;
+  grid-template-columns: var(--w-terms, 250px) 12px minmax(0, var(--fr-studies, 1fr)) 12px minmax(0, var(--fr-brain, 1.25fr));
+  gap: 12px 0;
+  align-items: stretch;
 }
+/* Wide screens: the three panels share one adjustable height and fill it */
+@media (min-width: 1281px) {
+  .grid > .card { min-height: var(--panel-h, clamp(620px, calc(100vh - 150px), 1000px)); display: flex; flex-direction: column; }
+  .grid .terms__list { flex: 1 1 0; min-height: 160px; max-height: none; }
+  .grid .studies .table-wrap { flex: 1 1 0; min-height: 160px; max-height: none; }
+  .grid .viewer__stage { flex: 1 1 0; min-height: 260px; height: auto; }
+}
+
+/* Drag handles between panels */
+.splitter { position: relative; display: flex; align-items: center; justify-content: center; touch-action: none; user-select: none; }
+.splitter:focus-visible { outline: none; }
+.splitter--col { cursor: col-resize; }
+.splitter--row { cursor: row-resize; height: 12px; margin: -12px 0; z-index: 1; }
+.splitter__grip { border-radius: 2px; background: var(--border); transition: background .12s; }
+.splitter--col .splitter__grip { width: 2px; height: 36px; }
+.splitter--row .splitter__grip { height: 2px; width: 36px; }
+.splitter:hover .splitter__grip, .splitter:focus-visible .splitter__grip, .splitter:active .splitter__grip { background: var(--accent); }
+.splitter--col:hover .splitter__grip, .splitter--col:focus-visible .splitter__grip { height: 72px; width: 3px; }
+.splitter--row:hover .splitter__grip, .splitter--row:focus-visible .splitter__grip { width: 72px; height: 3px; }
+body.is-resizing { user-select: none; }
+body.is-resizing--col, body.is-resizing--col * { cursor: col-resize !important; }
+body.is-resizing--row, body.is-resizing--row * { cursor: row-resize !important; }
+body.is-resizing canvas { pointer-events: none; }
+.querybar.is-sized { overflow: auto; }
 @media (max-width: 1280px) {
-  .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); }
+  .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 12px; align-items: start; }
+  .grid > .splitter, .splitter--panels { display: none; }
   .terms { grid-column: 1 / -1; order: 3; }
   .terms .terms__list { max-height: 240px; columns: 3 220px; display: block; }
 }
 @media (max-width: 860px) {
   .grid { grid-template-columns: minmax(0, 1fr); }
+  .splitter--query { display: none; }
+  .querybar.is-sized { height: auto !important; overflow: visible; }
   .viewer { order: 1; }
   .studies { order: 2; }
 }
@@ -253,8 +280,14 @@ h2 { font-size: 14px; font-weight: 650; }
 .table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
 .table th { position: sticky; top: 0; background: var(--surface-2); text-align: left; z-index: 1; }
 .table th, .table td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-.table th:first-child, .table td:first-child { width: 60px; }
-.table th:last-child, .table td:last-child { width: 28%; }
+.table .col-year { width: 60px; }
+.table .col-journal { width: 24%; }
+.table .col-study_id { width: 92px; white-space: nowrap; }
+.table .col-study_id a { text-decoration: none; }
+/* A narrow studies panel (dragged small) drops the journal column so titles stay readable */
+.studies { container-type: inline-size; }
+@container (max-width: 560px) { .table .col-journal { display: none; } }
+.table .col-study_id a:hover, .table .col-study_id a:focus-visible { text-decoration: underline; }
 .table td { overflow-wrap: anywhere; }
 .th-btn { font: inherit; font-weight: 650; background: none; border: 0; color: var(--text); cursor: pointer; padding: 0; }
 .sort-ind { font-size: 10px; margin-left: 4px; color: var(--muted); }
@@ -332,5 +365,5 @@ h2 { font-size: 14px; font-weight: 650; }
   .querybar__row { flex-direction: column; }
   .viewer__legend { top: 40px; left: 10px; right: auto; }
   .interp__total { margin-left: 0; }
-  .table th:last-child, .table td:last-child { display: none; }
+  .table .col-journal { display: none; }
 }
