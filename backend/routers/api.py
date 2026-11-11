@@ -7,25 +7,32 @@ API behind the LoTUS-BF frontend (all under /api).
     GET /api/query?q=...                 boolean term/coordinate query -> paged studies
     GET /api/query/map?q=...             foci of the matching studies binned on the MNI 2mm grid
     GET /api/query/facets?q=...          year / journal counts of the matches (for filter controls)
+    GET /api/query/terms?q=...           terms over-represented in the matches vs. the whole database
+    GET /api/query/export?q=&format=     all matches as CSV, BibTeX or RIS
+    GET /api/query/count?q=&q=           study counts for several queries (query builder totals)
 
 The three /api/query endpoints share optional study filters: `search` (words in the
 title, authors or journal), `year_min`, `year_max` and repeated `journal`.
     GET /api/studies/{study_id}          one study: metadata, foci, top terms
 """
 
+import math
 import re
+from datetime import date
+from enum import Enum
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import text
 
 from boolean_query import QuerySyntaxError, compile_sql, parse, to_json
 from config import MAX_RADIUS_MM, SRID
 from db import Connection, connect, get_conn
 from errors import NotFoundError, QueryError
-from params import DEFAULT_RADIUS, PageRequest, Radius, term_page
+import export
+from params import DEFAULT_RADIUS, Order, PageRequest, Radius, SortBy, term_page
 from queries import DEFAULT_ORDER, STUDY_COLUMNS, fetch_page_where
 from vocab import get_vocabulary
 
@@ -231,18 +238,119 @@ def query_studies(q: QueryString, r: Radius = DEFAULT_RADIUS,
 
 @router.get("/query/count")
 def query_counts(q: Annotated[list[str], Query(description="Boolean query; repeat for several (max 5)")],
-                 r: Radius = DEFAULT_RADIUS, conn: Connection = Depends(get_conn)):
+                 r: Radius = DEFAULT_RADIUS, filters: StudyFilters = Depends(study_filters),
+                 conn: Connection = Depends(get_conn)):
     """
-    Study counts for several queries at once (no filters, no rows). The query builder
-    uses it for its running totals: rows 1, 1-2 and 1-3.
+    Study counts for several queries at once (no rows). The query builder uses it for its
+    running totals (rows 1, 1-2 and 1-3); compare mode for A only / B only / both, with
+    the study filters applied.
     """
     if not 1 <= len(q) <= 5 or any(not 1 <= len(one) <= 1000 for one in q):
         raise QueryError("Pass 1 to 5 queries of 1 to 1000 characters", extra={"position": None, "suggestions": []})
     out = []
     for one in q:
         _, cq = _compile(one, r)
-        out.append({"query": one, "total": _query_total(conn, cq)})
+        if filters.active:
+            where, params = _filtered(cq, filters)
+            total = conn.execute(text(f"{cq.with_clause()} SELECT COUNT(*) FROM metadata m WHERE {where}"), params).scalar()
+        else:
+            total = _query_total(conn, cq)
+        out.append({"query": one, "total": total})
     return {"counts": out}
+
+
+GENERIC_SHARE = 0.30  # terms in more than this share of all studies are boilerplate ("magnetic resonance")
+
+
+class TermRanking(str, Enum):
+    specific = "specific"
+    common = "common"
+
+
+@router.get("/query/terms")
+def query_terms(q: QueryString, r: Radius = DEFAULT_RADIUS, filters: StudyFilters = Depends(study_filters),
+                rank: TermRanking = TermRanking.specific,
+                limit: Annotated[int, Query(ge=1, le=100)] = 30,
+                conn: Connection = Depends(get_conn)):
+    """
+    What else the matching studies (after filters) talk about: for each term, the share of
+    matches that mention it (`pct`) vs. the share of all studies (`pct_all`), and their ratio
+    (`lift`). Terms of the query itself are left out.
+
+    - `rank=specific` (default): terms with lift >= 1.5 and enough support, by n * log2(lift),
+      which favours terms that are both frequent here and unusual elsewhere
+    - `rank=common`: most frequent terms in the matches, leaving out generic terms that
+      appear in more than 30% of all studies ("magnetic resonance", "task", ...)
+    """
+    info, cq = _compile(q, r)
+    where, params = _filtered(cq, filters)
+    with_sql = cq.with_clause(f"matched AS MATERIALIZED (SELECT DISTINCT m.study_id FROM metadata m WHERE {where})")
+    n_match = conn.execute(text(f"{with_sql} SELECT COUNT(*) FROM matched"), params).scalar()
+    rows = conn.execute(text(f"""
+        {with_sql} SELECT a.term, COUNT(DISTINCT a.study_id) AS n
+        FROM annotations_terms a JOIN matched USING (study_id) GROUP BY a.term
+    """), params).all() if n_match else []
+
+    vocab = get_vocabulary()
+    n_all = _stats()["studies"]
+    own = {t["term"] for t in info["terms"]}
+    own_words = [set(t.split()) for t in own]  # "posterior cingulate" also hides "posterior", "cingulate"
+    min_n = max(3, math.ceil(0.02 * n_match))
+    out = []
+    for term, n in rows:
+        if term in own or term not in vocab.counts or any(set(term.split()) <= w for w in own_words):
+            continue
+        pct, pct_all = n / n_match, vocab.counts[term] / n_all
+        lift = pct / pct_all
+        if rank is TermRanking.specific and (n < min_n or lift < 1.5):
+            continue
+        if rank is TermRanking.common and pct_all > GENERIC_SHARE:
+            continue
+        out.append({"term": term, "n": n, "n_all": vocab.counts[term], "pct": pct, "pct_all": pct_all, "lift": lift,
+                    "score": n * math.log2(lift) if lift > 0 else 0})
+    key = (lambda t: (-t["score"], t["term"])) if rank is TermRanking.specific else (lambda t: (-t["n"], t["term"]))
+    out.sort(key=key)
+    return {"query": q, "filters": filters.to_json(), "rank": rank.value, "total": n_match,
+            "total_all": n_all, "min_support": min_n, "generic_share": GENERIC_SHARE, "terms": out[:limit]}
+
+
+def _describe_filters(f: StudyFilters) -> str:
+    parts = []
+    if f.search:
+        parts.append(f'keyword "{f.search}"')
+    if f.year_min is not None or f.year_max is not None:
+        parts.append(f"years {f.year_min or '…'}–{f.year_max or '…'}")
+    if f.journals:
+        parts.append("journal " + " or ".join(f.journals))
+    return ", ".join(parts) or "none"
+
+
+class ExportFormat(str, Enum):
+    csv = "csv"
+    bibtex = "bibtex"
+    ris = "ris"
+
+
+MAX_EXPORT = 20000  # more than the whole database
+
+
+@router.get("/query/export")
+def export_studies(q: QueryString, r: Radius = DEFAULT_RADIUS, format: ExportFormat = ExportFormat.csv,
+                   sort: SortBy = SortBy.year, order: Order = None,
+                   filters: StudyFilters = Depends(study_filters), conn: Connection = Depends(get_conn)):
+    """All matching studies (after filters) as a file: `csv`, `bibtex` or `ris` (Zotero, EndNote, Mendeley)."""
+    _, cq = _compile(q, r)
+    where, params = _filtered(cq, filters)
+    total, rows = fetch_page_where(conn, where, params, with_sql=cq.with_clause(), sort=sort.value,
+                                   order=order and order.value, limit=MAX_EXPORT, offset=0)
+    media, ext = export.FORMATS[format.value]
+    header = f"LoTUS-BF export, {date.today().isoformat()}\nQuery: {q}\nFilters: {_describe_filters(filters)}\n{total} studies"
+    body = export.render(format.value, rows, header)
+    name = f"lotus-bf_{export.filename_slug(q)}_{total}.{ext}"
+    return Response(body, media_type=media, headers={
+        "Content-Disposition": f'attachment; filename="{name}"',
+        "X-Total-Count": str(total),
+    })
 
 
 @router.get("/query/map")

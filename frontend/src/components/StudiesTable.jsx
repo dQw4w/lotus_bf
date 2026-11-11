@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, filterParams, filtersActive } from '../lib/api'
 import { StudyFilters } from './StudyFilters'
 
@@ -49,10 +49,13 @@ export function StudiesTable ({ query, radius, filters, setFilters, onResult, se
       <div className='card__head'>
         <h2>Studies</h2>
         {data && (
-          <span className='muted small'>
-            {filtersActive(filters)
-              ? <><b className='num'>{fmt(total)}</b> of {fmt(data.query_total)} after filters</>
-              : <><b className='num'>{fmt(total)}</b> matching</>}
+          <span className='studies__meta'>
+            <span className='muted small'>
+              {filtersActive(filters)
+                ? <><b className='num'>{fmt(total)}</b> of {fmt(data.query_total)} after filters</>
+                : <><b className='num'>{fmt(total)}</b> matching</>}
+            </span>
+            {total > 0 && <ExportMenu total={total} params={{ q: query, r: radius, ...filterParams(filters), sort: sort.key, order: sort.order }} />}
           </span>
         )}
       </div>
@@ -124,6 +127,42 @@ export function StudiesTable ({ query, radius, filters, setFilters, onResult, se
         </div>
       )}
     </section>
+  )
+}
+
+const EXPORTS = [
+  { format: 'csv', label: 'CSV', hint: 'Excel, Google Sheets, R, pandas' },
+  { format: 'bibtex', label: 'BibTeX', hint: 'LaTeX, Overleaf' },
+  { format: 'ris', label: 'RIS', hint: 'Zotero, EndNote, Mendeley' },
+]
+
+/** Download every matching study (after filters, in the table's order), not just this page. */
+function ExportMenu ({ total, params }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
+  }, [open])
+  return (
+    <span className='picker export' ref={ref}>
+      <button className='btn btn--sm' aria-expanded={open} aria-haspopup='menu' onClick={() => setOpen((o) => !o)}>Export ▾</button>
+      {open && (
+        <div className='picker__pop export__pop' role='menu'>
+          <div className='small muted export__note'>All {fmt(total)} studies (after filters), in the table’s order</div>
+          {EXPORTS.map((x) => (
+            <a key={x.format} role='menuitem' className='export__item' href={api.exportUrl({ ...params, format: x.format })}
+              download onClick={() => setOpen(false)}>
+              <b>{x.label}</b> <span className='muted small'>{x.hint}</span>
+            </a>
+          ))}
+        </div>
+      )}
+    </span>
   )
 }
 

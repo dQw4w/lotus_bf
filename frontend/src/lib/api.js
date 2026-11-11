@@ -10,13 +10,18 @@ export class ApiError extends Error {
 
 const API = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
 
-export async function getJSON (path, params = {}, { signal } = {}) {
+/** Absolute-path API URL with query params (arrays become repeated params, e.g. journal=A&journal=B). */
+export function apiUrl (path, params = {}) {
   const qs = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) {
-    if (Array.isArray(v)) v.forEach((x) => qs.append(k, x)) // repeated params, e.g. journal=A&journal=B
+    if (Array.isArray(v)) v.forEach((x) => qs.append(k, x))
     else if (v !== undefined && v !== null && v !== '') qs.set(k, v)
   }
-  const url = `${API}${path}${qs.toString() ? `?${qs}` : ''}`
+  return `${API}${path}${qs.toString() ? `?${qs}` : ''}`
+}
+
+export async function getJSON (path, params = {}, { signal } = {}) {
+  const url = apiUrl(path, params)
   const res = await fetch(url, { signal })
   const body = await res.json().catch(() => null)
   if (!res.ok) throw new ApiError(res.status, body)
@@ -31,6 +36,8 @@ export const api = {
   map: (params, opts) => getJSON('/api/query/map', params, opts),
   facets: (params, opts) => getJSON('/api/query/facets', params, opts),
   counts: (params, opts) => getJSON('/api/query/count', params, opts),
+  resultTerms: (params, opts) => getJSON('/api/query/terms', params, opts),
+  exportUrl: (params) => apiUrl('/api/query/export', params),
   study: (id, opts) => getJSON(`/api/studies/${encodeURIComponent(id)}`, {}, opts),
 }
 

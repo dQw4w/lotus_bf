@@ -4,6 +4,7 @@ import { QueryBar } from './components/QueryBar'
 import { Splitter, clamp, useLayout } from './components/Splitter'
 import { StudiesTable } from './components/StudiesTable'
 import { TermsPanel } from './components/TermsPanel'
+import { ThemeToggle } from './components/ThemeToggle'
 import { EMPTY_FILTERS, api, filterParams, filtersActive, readFiltersFromUrl, writeFiltersToUrl } from './lib/api'
 import { appendWith, termToken } from './lib/queryText'
 
@@ -30,6 +31,11 @@ export default function App () {
   const [map, setMap] = useState(null)
   const [mapLoading, setMapLoading] = useState(false)
   const [mapError, setMapError] = useState(null)
+  const [vs, setVsState] = useState(() => new URLSearchParams(window.location.search).get('vs') ?? '')
+  const [vsMap, setVsMap] = useState(null)
+  const [vsLoading, setVsLoading] = useState(false)
+  const [vsError, setVsError] = useState(null)
+  const [vsCounts, setVsCounts] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [study, setStudy] = useState(null)
   const [studyError, setStudyError] = useState(null)
@@ -48,6 +54,7 @@ export default function App () {
     const onPop = () => {
       const s = readUrl(); setCommitted(s); setDraft(s.q)
       setFiltersState({ ...EMPTY_FILTERS, ...readFiltersFromUrl(new URLSearchParams(window.location.search)) })
+      setVsState(new URLSearchParams(window.location.search).get('vs') ?? '')
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -60,6 +67,37 @@ export default function App () {
     writeFiltersToUrl(url.searchParams, f)
     if (url.href !== window.location.href) window.history.replaceState(null, '', url)
   }, [])
+
+  // Compare mode: query B (?vs=) is mapped with the same radius and filters as A
+  const setVs = useCallback((v) => {
+    const next = (v ?? '').trim()
+    setVsState(next)
+    const url = new URL(window.location.href)
+    next ? url.searchParams.set('vs', next) : url.searchParams.delete('vs')
+    if (url.href !== window.location.href) window.history.replaceState(null, '', url)
+  }, [])
+
+  useEffect(() => {
+    if (!vs || !query) { setVsMap(null); setVsError(null); setVsLoading(false); return }
+    const ac = new AbortController()
+    setVsLoading(true)
+    api.map({ q: vs, r: radius, ...filterParams(filters) }, { signal: ac.signal })
+      .then((d) => { setVsMap(d); setVsError(null) })
+      .catch((e) => { if (e.name !== 'AbortError') { setVsMap(null); setVsError(e.message) } })
+      .finally(() => { if (!ac.signal.aborted) setVsLoading(false) })
+    return () => ac.abort()
+  }, [vs, query, radius, filterKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setVsCounts(null)
+    if (!vs || !query) return
+    const ac = new AbortController()
+    const A = `(${query})`; const B = `(${vs})`
+    api.counts({ q: [`${A} AND NOT ${B}`, `${B} AND NOT ${A}`, `${A} AND ${B}`], r: radius, ...filterParams(filters) }, { signal: ac.signal })
+      .then((d) => setVsCounts(d.counts.map((c) => c.total)))
+      .catch(() => {})
+    return () => ac.abort()
+  }, [vs, query, radius, filterKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Vocabulary + stats once. Render's free tier sleeps, so flag a slow first response.
   useEffect(() => {
@@ -136,6 +174,7 @@ export default function App () {
             ? <>{fmt(stats.studies)} studies · {fmt(stats.foci)} foci · {fmt(stats.terms)} terms</>
             : waking ? <span className='badge'>Waking up the server (free tier, ~30 s)…</span> : null}
           {layoutCustom && <button className='btn btn--ghost btn--xs' onClick={resetLayout} title='Restore the default panel sizes'>Reset layout</button>}
+          <ThemeToggle />
           <a href='/docs' target='_blank' rel='noreferrer'>API</a>
         </div>
       </header>
@@ -165,7 +204,7 @@ export default function App () {
       />
 
       <main className='grid' ref={gridRef} style={gridStyle}>
-        <TermsPanel vocab={vocab} vocabError={vocabError} onAdd={addTerm} />
+        <TermsPanel vocab={vocab} vocabError={vocabError} onAdd={addTerm} query={query} radius={radius} filters={filters} />
         <Splitter
           orientation='vertical'
           label='Terms panel width'
@@ -208,6 +247,10 @@ export default function App () {
           points={info?.points}
           studyFoci={study?.foci}
           onAddPoint={addToken}
+          query={query}
+          vocab={vocab}
+          compare={vs ? { query: vs, map: vsMap, loading: vsLoading, error: vsError, counts: vsCounts } : null}
+          onCompare={setVs}
         />
       </main>
 

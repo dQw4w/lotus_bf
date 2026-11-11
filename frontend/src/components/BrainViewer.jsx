@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Niivue, NVImage, SHOW_RENDER, SLICE_TYPE } from '@niivue/niivue'
+import { regionAt, regionLabel, useAtlas } from '../lib/atlas'
 import { buildDensity, toNifti } from '../lib/density'
 import { pointToken } from '../lib/queryText'
+import { COMPARE_COLORS, CompareBar } from './CompareBar'
 
 const TEMPLATE_URL = `${import.meta.env.BASE_URL}mni_2mm.nii.gz`
 
@@ -16,13 +18,27 @@ const VIEWS = [
 const COLORMAPS = ['warm', 'hot', 'plasma', 'viridis', 'winter']
 const fmt = (n) => n?.toLocaleString('en-US')
 const round1 = (v) => Math.round(v * 10) / 10
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16))
+const COMPARE_CLASSES = ['', 'A only', 'B only', 'Both']
+
+/** 1 = only A above threshold, 2 = only B, 3 = both (each map thresholded at its own peak × pct). */
+function compareLabels (a, b, pct) {
+  const ta = a && a.max > 0 ? (pct / 100) * a.max : Infinity
+  const tb = b && b.max > 0 ? (pct / 100) * b.max : Infinity
+  const n = (a ?? b).data.length
+  const out = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    out[i] = (a && a.data[i] > ta ? 1 : 0) + (b && b.data[i] > tb ? 2 : 0)
+  }
+  return out
+}
 
 /**
  * 3D brain viewer (Niivue / WebGL2): MNI152 template + a density map of the
  * matching studies' foci, with query coordinates and the selected study's foci
  * drawn as spheres.
  */
-export function BrainViewer ({ map, mapLoading, mapError, filtered, points, studyFoci, onAddPoint }) {
+export function BrainViewer ({ map, mapLoading, mapError, filtered, points, studyFoci, onAddPoint, query, vocab, compare, onCompare }) {
   const canvasRef = useRef(null)
   const nvRef = useRef(null)
   const overlayRef = useRef(null)
@@ -38,6 +54,9 @@ export function BrainViewer ({ map, mapLoading, mapError, filtered, points, stud
   const [glass, setGlass] = useState(true)
   const [cut, setCut] = useState(0) // 0 = no clip plane, otherwise depth 0..1
   const [loc, setLoc] = useState(null) // {mm:[x,y,z], value}
+  const [compareOpen, setCompareOpen] = useState(Boolean(compare?.query))
+  useEffect(() => { if (compare?.query) setCompareOpen(true) }, [compare?.query])
+  const atlas = useAtlas()
 
   // ---------------------------------------------------------------- init
   useEffect(() => {
@@ -51,7 +70,7 @@ export function BrainViewer ({ map, mapLoading, mapError, filtered, points, stud
       multiplanarShowRender: SHOW_RENDER.ALWAYS,
       isOrientCube: true,
       dragAndDropEnabled: false,
-      loadingText: 'Loading MNI152 template…',
+      loadingText: 'Loading MNI152 template...',
       fontColor: [0.85, 0.87, 0.9, 1],
       isClipPlanesCutaway: false,
       clipPlaneColor: [0, 0, 0, 0], // cut without tinting the cut face
@@ -89,6 +108,15 @@ export function BrainViewer ({ map, mapLoading, mapError, filtered, points, stud
     return buildDensity(map.voxels, map.total, fwhm)
   }, [map, fwhm])
 
+  // Compare mode: A / B / both label map instead of the density
+  const densityB = useMemo(() => {
+    if (!compare?.map?.voxels?.length) return null
+    return buildDensity(compare.map.voxels, compare.map.total, fwhm)
+  }, [compare?.map, fwhm])
+  const comparing = Boolean(compare?.query && compare.map && map && !compare.error)
+  const labels = useMemo(() => (comparing && (density || densityB) ? compareLabels(density, densityB, threshold) : null),
+    [comparing, density, densityB, threshold])
+
   useEffect(() => {
     const nv = nvRef.current
     if (!ready || !nv) return
@@ -97,6 +125,20 @@ export function BrainViewer ({ map, mapLoading, mapError, filtered, points, stud
       if (overlayRef.current) {
         nv.removeVolume(overlayRef.current)
         overlayRef.current = null
+      }
+      if (labels) {
+        const img = await NVImage.loadFromUrl({
+          url: 'compare.nii', buffer: toNifti(labels, 'LoTUS-BF compare: 1=A 2=B 3=both'), name: 'compare.nii', opacity, colorbarVisible: false,
+        })
+        const [a, b, both] = [COMPARE_COLORS.a, COMPARE_COLORS.b, COMPARE_COLORS.both].map(hex)
+        img.setColormapLabel({
+          R: [0, a[0], b[0], both[0]], G: [0, a[1], b[1], both[1]], B: [0, a[2], b[2], both[2]],
+          A: [0, 255, 255, 255], I: [0, 1, 2, 3], labels: COMPARE_CLASSES,
+        })
+        if (cancelled) return
+        nv.addVolume(img)
+        overlayRef.current = img
+        return
       }
       if (!density || density.max <= 0) { nv.updateGLVolume(); return }
       const img = await NVImage.loadFromUrl({
@@ -114,17 +156,19 @@ export function BrainViewer ({ map, mapLoading, mapError, filtered, points, stud
       overlayRef.current = img
     })().catch((e) => console.error('overlay failed', e))
     return () => { cancelled = true }
-  }, [ready, density]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, density, labels]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // cheap property updates: no rebuild
   useEffect(() => {
     const nv = nvRef.current; const ov = overlayRef.current
-    if (!ready || !nv || !ov || !density) return
+    if (!ready || !nv || !ov) return
+    if (labels) { nv.setOpacity(nv.getVolumeIndexByID(ov.id), opacity); nv.updateGLVolume(); return }
+    if (!density) return
     ov.cal_min = (threshold / 100) * density.max
     ov.cal_max = density.max
     nv.setOpacity(nv.getVolumeIndexByID(ov.id), opacity)
     nv.setColormap(ov.id, colormap) // also refreshes the GL volume
-  }, [ready, threshold, colormap, opacity, density])
+  }, [ready, threshold, colormap, opacity, density, labels])
 
   // ---------------------------------------------------------------- view & 3D options
   useEffect(() => {
@@ -205,33 +249,50 @@ export function BrainViewer ({ map, mapLoading, mapError, filtered, points, stud
   }
 
   const downloadNifti = () => {
-    if (!density) return
-    const blob = new Blob([toNifti(density.data)], { type: 'application/octet-stream' })
+    if (!density && !labels) return
+    const blob = new Blob([labels ? toNifti(labels, 'LoTUS-BF compare: 1=A 2=B 3=both') : toNifti(density.data)], { type: 'application/octet-stream' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
-    a.download = `lotus-bf_density_fwhm${fwhm}.nii`
+    a.download = labels ? `lotus-bf_compare_fwhm${fwhm}_thr${threshold}.nii` : `lotus-bf_density_fwhm${fwhm}.nii`
     a.click()
     setTimeout(() => URL.revokeObjectURL(a.href), 1000)
   }
 
   const xyz = loc?.mm?.length === 3 ? loc.mm.map((v) => Math.round(v)) : null
+  const region = useMemo(() => regionLabel(regionAt(atlas, xyz)), [atlas, xyz?.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <section className='card viewer' aria-label='Brain viewer'>
       <div className='card__head'>
         <h2>Brain</h2>
-        <div className='seg' role='tablist' aria-label='View'>
-          {VIEWS.map((v) => (
-            <button key={v.id} role='tab' aria-selected={view === v.id} className='seg__btn' onClick={() => setView(v.id)}>{v.label}</button>
-          ))}
+        <div className='viewer__head-tools'>
+          <button className={`btn btn--sm ${compareOpen ? 'btn--on' : ''}`} aria-pressed={compareOpen} disabled={!query}
+            title={query ? 'Compare this query with another one' : 'Run a query first'}
+            onClick={() => { if (compareOpen) { setCompareOpen(false); onCompare(null) } else setCompareOpen(true) }}>
+            Compare
+          </button>
+          <div className='seg' role='tablist' aria-label='View'>
+            {VIEWS.map((v) => (
+              <button key={v.id} role='tab' aria-selected={view === v.id} className='seg__btn' onClick={() => setView(v.id)}>{v.label}</button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {compareOpen && query && (
+        <CompareBar queryA={query} value={compare?.query ?? ''} onSubmit={onCompare} vocab={vocab}
+          onClose={() => { setCompareOpen(false); onCompare(null) }}
+          error={compare?.error} loading={compare?.loading} counts={compare?.counts} />
+      )}
 
       <div className='viewer__stage'>
         <canvas ref={canvasRef} />
         <div className='viewer__badges'>
-          {mapLoading && <span className='badge'>Computing map…</span>}
-          {!mapLoading && map && (
+          {(mapLoading || compare?.loading) && <span className='badge'>Computing map…</span>}
+          {!mapLoading && comparing && (
+            <span className='badge'>A {fmt(map.total)} · B {fmt(compare.map.total)} studies{filtered ? ' · filtered' : ''}</span>
+          )}
+          {!mapLoading && map && !comparing && (
             <span className='badge'>
               {fmt(map.total)} studies · {fmt(map.n_foci)} foci{filtered ? ' · filtered' : ''}
             </span>
@@ -253,7 +314,9 @@ export function BrainViewer ({ map, mapLoading, mapError, filtered, points, stud
       <div className='viewer__loc'>
         <span className='mono small'>
           {xyz ? <>MNI <b>[{xyz.join(', ')}]</b></> : 'Click the brain to pick a coordinate'}
-          {xyz && loc.value != null && density && <span className='muted'> · {round1(loc.value)}% of studies</span>}
+          {xyz && <span className='viewer__region'> · {region || <span className='muted'>no labelled region nearby</span>}</span>}
+          {xyz && loc.value != null && !labels && density && <span className='muted'> · {round1(loc.value)}% of studies</span>}
+          {xyz && labels && loc.value != null && <span className='muted'> · {COMPARE_CLASSES[Math.round(loc.value)] || 'neither map'}</span>}
         </span>
         <span className='viewer__loc-btns'>
           <button className='btn btn--sm' disabled={!xyz} onClick={() => onAddPoint(pointToken(xyz), 'AND')} title='Add this coordinate with AND'>+ AND {xyz ? pointToken(xyz) : ''}</button>
@@ -262,7 +325,10 @@ export function BrainViewer ({ map, mapLoading, mapError, filtered, points, stud
           {points?.length > 0 && (
             <select className='input input--sm' value='' onChange={(e) => e.target.value && moveTo(JSON.parse(e.target.value))} aria-label='Jump to a query point'>
               <option value=''>Jump to…</option>
-              {points.map((p, i) => <option key={i} value={JSON.stringify(p.xyz)}>{p.negated ? 'NOT ' : ''}[{p.xyz.join(', ')}]</option>)}
+              {points.map((p, i) => {
+                const r = regionLabel(regionAt(atlas, p.xyz))
+                return <option key={i} value={JSON.stringify(p.xyz)}>{p.negated ? 'NOT ' : ''}[{p.xyz.join(', ')}]{r ? ` · ${r}` : ''}</option>
+              })}
             </select>
           )}
         </span>
@@ -284,16 +350,18 @@ export function BrainViewer ({ map, mapLoading, mapError, filtered, points, stud
         <label className='inline'>
           <input type='checkbox' checked={glass} onChange={(e) => setGlass(e.target.checked)} /> Glass brain
         </label>
-        <label className='inline'>Colormap
-          <select className='input input--sm' value={colormap} onChange={(e) => setColormap(e.target.value)}>
+        <label className='inline' title={labels ? 'Compare mode uses fixed A / B / both colours' : undefined}>Colormap
+          <select className='input input--sm' value={colormap} disabled={Boolean(labels)} onChange={(e) => setColormap(e.target.value)}>
             {COLORMAPS.map((c) => <option key={c}>{c}</option>)}
           </select>
         </label>
-        <button className='btn btn--ghost btn--sm' disabled={!density} onClick={downloadNifti} title='Download the current density map as NIfTI'>Download .nii</button>
+        <button className='btn btn--ghost btn--sm' disabled={!density && !labels} onClick={downloadNifti} title={labels ? 'Download the A / B / both map as NIfTI (1 = A only, 2 = B only, 3 = both)' : 'Download the current density map as NIfTI'}>Download .nii</button>
       </div>
       <p className='muted small viewer__note'>
-        Map value = share of matching studies reporting a focus nearby (Gaussian-smoothed).
-        Drag to rotate · scroll to zoom · click to set the crosshair.
+        {labels
+          ? <>Compare: each map is thresholded at {threshold}% of its own peak. </>
+          : <>Map value = share of matching studies reporting a focus nearby (Gaussian-smoothed). </>}
+        Drag to rotate · scroll to zoom · click to set the crosshair. Regions: Harvard-Oxford atlas.
       </p>
     </section>
   )

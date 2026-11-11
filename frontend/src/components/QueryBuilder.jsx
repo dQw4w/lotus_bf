@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useAnchoredStyle } from '../lib/anchor'
+import { regionAt, regionLabel, useAtlas } from '../lib/atlas'
 import { itemKey, parseLocation } from '../lib/builder'
 import { rankTerms } from '../lib/queryText'
 
@@ -73,12 +74,14 @@ export function QueryBuilder ({ spec, onChange, vocab, radius, totals, unsupport
 
 function BuilderChip ({ item, row, radius, n, onRemove }) {
   const neg = row === 'none'
+  const atlas = useAtlas()
+  const region = item.type === 'point' ? regionLabel(regionAt(atlas, item.xyz)) : ''
   const label = item.type === 'term'
     ? item.term
-    : <>[{item.xyz.join(', ')}] <small>{item.r ?? radius} mm</small></>
+    : <>[{item.xyz.join(', ')}] <small>{item.r ?? radius} mm</small>{region && <span className='bchip__region'> {region}</span>}</>
   const title = item.type === 'term'
     ? `${fmt(n)} studies mention “${item.term}”`
-    : `Studies with a reported peak within ${item.r ?? radius} mm`
+    : `Studies with a reported peak within ${item.r ?? radius} mm${region ? ` (${region})` : ''}`
   return (
     <span className={`bchip bchip--${item.type} ${neg ? 'bchip--neg' : ''}`} title={title}>
       <span className='bchip__label'>{label}</span>

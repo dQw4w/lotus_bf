@@ -85,6 +85,15 @@ The old viewer was a hand-written 2D canvas slicer. The new one uses [Niivue](ht
 - smoothing (FWHM), threshold, opacity and colormap update instantly. The backend sends the foci
   binned on the 2 mm grid once, and the browser does the Gaussian smoothing, so there's no server round trip per slider move
 - **Download .nii** exports the current map as NIfTI
+- **Region names:** the readout names the region under the crosshair, e.g. `MNI [24, -4, -18] · Right Amygdala`,
+  or `near Left Thalamus (4 mm)` in white matter. Query locations in the builder and the *Jump to* list are labelled too.
+  The lookup uses the Harvard-Oxford atlas (cortical, split left/right, plus subcortical; max-probability 25 %),
+  a 32 KB file on the same 2 mm grid built by [`scripts/build_atlas.py`](scripts/build_atlas.py)
+- **Compare** two queries: the current query is A, type B (with autocomplete), and the brain shows where only A's
+  studies report foci (orange), only B's (blue) or both (pink), each map thresholded at the same % of its own peak.
+  The legend gives study counts for A only / both / B only (with the study filters applied), the link keeps B
+  (`&vs=pain`), and *Download .nii* saves the label map (1 = A only, 2 = B only, 3 = both).
+  The three colours pass a colour-blindness check against the dark viewer background
 
 The map value is the share of matching studies that report a focus nearby, so it reads on a "% of studies" scale.
 
@@ -95,6 +104,11 @@ and shows how many studies each term has (`posterior cingulate — 947 studies`)
 The whole vocabulary (3,228 terms with counts) loads once, so suggestions need no network round trip.
 The **Terms** panel lists every term with its count. Click to AND it in, hover for OR / NOT,
 and ≈ for related terms (ranked by Jaccard overlap of their study sets).
+
+Once there is a query, the panel opens on **In these results**: the terms the matching studies (after
+filters) mention unusually often, as a bar of the share here with a tick at the share across all
+studies (`threat — 21% vs 1.6%`). *Distinctive* ranks by `n × log2(lift)` among terms at least 1.5×
+over-represented; *Most common* ranks by frequency, hiding boilerplate found in over 30% of all studies.
 
 ### 5. Filtering the returned studies
 
@@ -120,7 +134,9 @@ URL (`&s=faces&y0=2010&j=NeuroImage`) and stay when you change the query.
   Sizes are remembered in the browser. On screens narrower than 1280 px the panels stack as before
 - clicking a study shows its metadata, its top TF-IDF terms (click one to add it), and its foci on the brain
 - the query lives in the URL (`?q=…&r=…`), so links are shareable and back/forward work
-- light/dark theme, works on phones
+- **Export** all matching studies (after filters, in the table's order) as **CSV** (Excel, R, pandas),
+  **BibTeX** (LaTeX) or **RIS** (Zotero, EndNote, Mendeley), not just the visible page
+- light/dark theme that follows the system, with a toggle in the header (Auto → Light → Dark, remembered); works on phones
 - no database credentials in the source (the original `app.py` hard-codes them, which is why
   `lotus-bf.zip` is git-ignored)
 
@@ -132,16 +148,19 @@ URL (`&s=faces&y0=2010&j=NeuroImage`) and stay when you change the query.
 .
 ├── frontend/                  React + Vite app
 │   ├── public/mni_2mm.nii.gz  MNI152 2 mm brain template (same file as the original)
+│   ├── public/atlas/          Harvard-Oxford region labels on the same grid (from scripts/build_atlas.py)
 │   └── src/
 │       ├── App.jsx            state, URL sync, data fetching
-│       ├── components/        QueryBar, QueryBuilder, TermsPanel, StudiesTable, StudyFilters, BrainViewer, Splitter
-│       └── lib/               api client, query-text and builder helpers, density map + NIfTI writer
+│       ├── components/        QueryBar, QueryBuilder, TermsPanel, StudiesTable, StudyFilters, BrainViewer, CompareBar, Splitter, ThemeToggle
+│       └── lib/               api client, query-text and builder helpers, density map + NIfTI writer, atlas lookup
 ├── backend/                   FastAPI (see backend/README.md)
 │   ├── boolean_query.py       query language: lexer, parser, AST → SQL
 │   ├── vocab.py               cached term vocabulary, ranking, suggestions
 │   ├── routers/api.py         /api/* endpoints used by the frontend
-│   ├── tests/                 parser tests
+│   ├── export.py              CSV / BibTeX / RIS writers
+│   ├── tests/                 parser and export tests
 │   └── Dockerfile             builds the frontend, then the API image that serves it
+├── scripts/build_atlas.py     rebuilds frontend/public/atlas (needs nilearn)
 ├── data/                      Neurosynth Parquet files (for create_db.py)
 ├── docker-compose.yml
 └── render.yaml
@@ -155,6 +174,8 @@ Interactive docs: `/docs`. The new endpoints are all `GET`:
 | --- | --- |
 | `/api/query?q=&r=&sort=&order=&limit=&offset=` | studies matching the boolean query, paged, plus the parse (`interpreted`, `ast`, `terms`, `points`) |
 | `/api/query/map?q=&r=` | foci of all matching studies binned on the MNI 2 mm grid: flat `[i, j, k, n_studies, …]` |
+| `/api/query/terms?q=&r=&rank=` | terms over-represented in the matches vs. all studies (`specific` or `common`) |
+| `/api/query/export?q=&r=&format=` | all matches as a `csv`, `bibtex` or `ris` file |
 | `/api/query/count?q=&q=&r=` | study counts for up to 5 queries at once (the builder's running totals) |
 | `/api/query/facets?q=&r=` | year and journal counts of the matches, for the filter controls |
 | `/api/terms?q=&limit=` | terms ranked exact → prefix → word-prefix → substring, each with `n_studies` |
@@ -162,7 +183,7 @@ Interactive docs: `/docs`. The new endpoints are all `GET`:
 | `/api/studies/{pmid}` | one study: metadata, all foci, top terms |
 | `/api/stats` | row counts |
 
-`/api/query`, `/api/query/map` and `/api/query/facets` accept the same optional study filters: `search=` (keyword),
+`/api/query`, `/api/query/map`, `/api/query/facets`, `/api/query/terms`, `/api/query/export` and `/api/query/count` accept the same optional study filters: `search=` (keyword),
 `year_min=`, `year_max=`, and `journal=` (repeat it for several). `/api/query` returns
 `total` (after filters) and `query_total` (before them).
 
